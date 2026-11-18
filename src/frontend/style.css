@@ -1,0 +1,44 @@
+:root { color-scheme: light dark; --bg: #f6f7f9; --card: #fff; --line: #dfe2e8; --text: #1d2026; --muted: #6a7280; --accent: #3b6df0; --ok: #2f9e5b; --err: #d14343; }
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #16181d; --card: #1e2128; --line: #2d323c; --text: #dde0e6; --muted: #8c94a3; --accent: #6b94ff; --ok: #4cc27f; --err: #ef7676; }
+}
+* { box-sizing: border-box; margin: 0; }
+body { font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); padding: 20px 24px 28px; display: flex; flex-direction: column; gap: 14px; }
+header { padding-bottom: 2px; }
+h1 { font-size: 19px; font-weight: 650; }
+.sub, .muted, .hint { color: var(--muted); }
+.hint { font-size: 12.5px; margin-top: 8px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+.card h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin-bottom: 8px; }
+code, pre { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12.5px; }
+pre { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; margin: 8px 0; overflow-x: auto; }
+button { background: var(--card); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 6px 12px; font: inherit; cursor: pointer; }
+button:hover { border-color: var(--accent); }
+button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+.actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.model { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+#modelName { overflow-wrap: anywhere; }
+#modelName.set { color: var(--text); }
+details { margin-top: 10px; }
+summary { cursor: pointer; color: var(--muted); }
+.adv { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; margin-top: 10px; }
+.adv label { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; color: var(--muted); }
+input { background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; font: inherit; }
+.drop { border: 2px dashed var(--line); border-radius: 12px; padding: 34px 16px; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.drop.over { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.drop .big { font-size: 17px; font-weight: 600; }
+.drop button { margin-top: 6px; }
+ul { list-style: none; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+li.job { display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; padding-bottom: 10px; border-bottom: 1px solid var(--line); }
+li.job:last-child { border-bottom: 0; padding-bottom: 0; }
+.jname { font-weight: 600; overflow-wrap: anywhere; }
+.jstate { color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; }
+.jstate.ok { color: var(--ok); }
+.jstate.err { color: var(--err); }
+.jdetail { grid-column: 1 / -1; color: var(--muted); font-size: 12.5px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.bar { grid-column: 1 / -1; height: 4px; background: var(--line); border-radius: 2px; overflow: hidden; }
+.bar > i { display: block; height: 100%; width: 35%; background: var(--accent); animation: slide 1.4s ease-in-out infinite; }
+.bar > i.det { animation: none; width: 0; transition: width .3s; }
+@keyframes slide { 0% { margin-left: -35%; } 100% { margin-left: 100%; } }
+.jactions { grid-column: 1 / -1; display: flex; gap: 8px; margin-top: 4px; }
+.jactions button { padding: 3px 10px; font-size: 12.5px; }
