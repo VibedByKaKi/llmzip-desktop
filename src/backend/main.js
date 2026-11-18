@@ -132,6 +132,15 @@ async function modelFingerprint(path) {
 
 const ENGINE_REPO = 'git+https://github.com/alexbuz/llama-zip.git';
 
+// LLMZIP_DRY_RUN_INSTALL=1 makes the install flow print the command it would
+// run and simulate the output, without running uv or pipx. Any value except
+// empty, "0" or "false" turns it on.
+function dryRunInstall() {
+  const v = String(tjs.env.LLMZIP_DRY_RUN_INSTALL ?? '').trim().toLowerCase();
+  return v !== '' && v !== '0' && v !== 'false';
+}
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 async function findTool(name) {
   const names = IS_WIN ? [`${name}.exe`, `${name}.cmd`] : [name];
   const dirs = [...searchDirs(), joinPath(tjs.homeDir, '.cargo/bin')];
@@ -450,7 +459,7 @@ export const api = {
   },
 
   async installers() {
-    return { uv: await findTool('uv'), pipx: await findTool('pipx'), git: !!(await findTool('git')), windows: IS_WIN };
+    return { uv: await findTool('uv'), pipx: await findTool('pipx'), git: !!(await findTool('git')), windows: IS_WIN, dryRun: dryRunInstall() };
   },
 
   // Installs llama-zip with `uv tool install` or `pipx install`. The package
@@ -458,7 +467,9 @@ export const api = {
   // page as 'install' events.
   async installEngine({ tool }, app) {
     if (tool !== 'uv' && tool !== 'pipx') throw new Error('Choose uv or pipx.');
-    const exe = await findTool(tool);
+    const dry = dryRunInstall();
+    // A dry run works without the installer, so the flow can be tried anywhere.
+    const exe = (await findTool(tool)) || (dry ? tool : null);
     if (!exe) throw new Error(`${tool} was not found on this machine.`);
     return startJob(app, 'install', async (job) => {
       job.stage = 'installing';
@@ -466,6 +477,18 @@ export const api = {
         ? [exe, 'tool', 'install', '--force', ENGINE_REPO]
         : [exe, 'install', '--force', ENGINE_REPO];
       app.push('install', { text: `$ ${args.join(' ')}\n` });
+      if (dry) {
+        for (const line of [
+          '[dry run] Resolving packages',
+          '[dry run] Building llama-cpp-python (simulated)',
+          '[dry run] Nothing was installed. Unset LLMZIP_DRY_RUN_INSTALL to install for real.',
+        ]) {
+          await sleep(700);
+          if (job.cancelled) throw new Error('Cancelled');
+          app.push('install', { text: `${line}\n` });
+        }
+        return { dryRun: true, command: args.join(' ') };
+      }
       const proc = tjs.spawn(args, { stdin: 'ignore', stdout: 'pipe', stderr: 'pipe', env: toolEnv() });
       job.proc = proc;
       let tail = '';

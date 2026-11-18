@@ -19,6 +19,8 @@ On first launch the app offers to install `llama-zip` for you. The install box r
 
 The installer output streams into the window, and Cancel stops it. The app looks for `llama-zip` on your `PATH` and in `~/.local/bin`, `/opt/homebrew/bin` and `/usr/local/bin`. If you installed it somewhere else, choose "Use an existing llama-zip".
 
+Set `LLMZIP_DRY_RUN_INSTALL=1` to try the install flow without installing anything. The app prints the command it would run, simulates a few lines of output over about two seconds, and changes nothing. Both installer buttons work in a dry run, even when uv or pipx is missing, and Cancel works. Any value except empty, `0` or `false` turns it on. For example: `LLMZIP_DRY_RUN_INSTALL=1 tinyjs dev`.
+
 If neither installer is on your machine, the app says so and links to the uv install guide. It does not install uv or pipx itself.
 
 ## Get a model

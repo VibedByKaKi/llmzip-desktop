@@ -52,7 +52,9 @@ function renderSetup() {
   $('installUv').title = uv ? uv : 'uv was not found on this machine';
   $('installPipx').title = pipx ? pipx : 'pipx was not found on this machine';
   const hint = $('noInstaller');
-  const missing = [!uv && 'uv', !pipx && 'pipx'].filter(Boolean);
+  const dry = !!state.installers.dryRun;
+  $('dryNote').hidden = !dry;
+  const missing = dry ? [] : [!uv && 'uv', !pipx && 'pipx'].filter(Boolean);
   hint.hidden = missing.length === 0;
   hint.innerHTML = !uv && !pipx
     ? 'Neither uv nor pipx was found. Install one of them, then choose "Check again". <a href="#" id="uvDocs">How to install uv</a>'
@@ -94,7 +96,7 @@ function updateControls() {
   const busy = !!state.exclusive;
   for (const b of document.querySelectorAll('#setup button[data-tool]')) {
     const tool = b.dataset.tool;
-    b.disabled = busy || !state.installers[tool];
+    b.disabled = busy || !(state.installers[tool] || state.installers.dryRun);
     b.textContent = state.installing === tool ? `installing with ${tool}…` : `using ${tool}`;
   }
   $('cancelInstall').hidden = state.exclusive !== 'install';
@@ -148,7 +150,7 @@ tiny.api.on('install', ({ text }) => {
 });
 
 async function install(tool) {
-  if (!state.installers[tool] || state.exclusive) return;
+  if (!(state.installers[tool] || state.installers.dryRun) || state.exclusive) return;
   state.exclusive = 'install';
   state.installing = tool;
   installLog = '';
@@ -156,8 +158,10 @@ async function install(tool) {
   updateControls();
   try {
     const r = await tiny.api.call('installEngine', { tool });
-    state.enginePath = r.engine;
-    await tiny.store.set('enginePath', r.engine);
+    if (!r.dryRun) {
+      state.enginePath = r.engine;
+      await tiny.store.set('enginePath', r.engine);
+    }
   } catch (e) {
     const msg = String(e && e.message ? e.message : e);
     $('installErr').textContent = msg === 'Cancelled' ? 'Install cancelled.' : msg;
