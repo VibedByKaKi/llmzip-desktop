@@ -15,18 +15,17 @@
 <section class="card" id="setup" hidden>
   <h2>Install llama-zip</h2>
   <p>LLM Zip needs the <code>llama-zip</code> tool. Installing it builds llama.cpp from source. That takes 5 to 20 minutes and needs <code>git</code> and a C/C++ compiler.</p>
-  <div class="choices" id="installers">
-    <label class="choice"><input type="radio" name="installer" value="uv">
-      <span><code>uv tool install</code> <em id="uvState"></em></span></label>
-    <label class="choice"><input type="radio" name="installer" value="pipx">
-      <span><code>pipx install</code> <em id="pipxState"></em></span></label>
+  <div class="installrow">
+    <span class="installlabel">Install…</span>
+    <div class="btngroup" role="group" aria-label="Installer">
+      <button id="installUv" data-tool="uv">using uv</button>
+      <button id="installPipx" data-tool="pipx">using pipx</button>
+    </div>
+    <button id="cancelInstall" hidden>Cancel</button>
   </div>
-  <p class="hint" id="noInstaller" hidden>Neither uv nor pipx was found. Install one of them, then choose "Check again".
-    <a href="#" id="uvDocs">How to install uv</a></p>
+  <p class="hint" id="noInstaller" hidden></p>
   <p class="hint" id="noGit" hidden>git was not found. The install needs it to fetch llama-zip.</p>
   <div class="actions">
-    <button class="primary" id="install">Install</button>
-    <button id="cancelInstall" hidden>Cancel</button>
     <button id="recheck">Check again</button>
     <button id="pickEngine">Use an existing llama-zip…</button>
   </div>
@@ -65,29 +64,35 @@
   <details>
     <summary>Advanced</summary>
     <div class="adv">
-      <label>Context length (tokens, 0 = model maximum)
-        <input id="nCtx" type="number" min="0" step="256" value="0"></label>
-      <label>Window overlap (for example 25% or 512)
-        <input id="overlap" value="0%"></label>
-      <label>GPU layers (0 = CPU only, -1 = all)
-        <input id="gpuLayers" type="number" min="-1" value="0"></label>
+      <label for="nCtx">Context length <span class="muted">(tokens, 0 = model maximum)</span></label>
+      <input id="nCtx" type="number" min="0" step="256" value="0">
+      <label for="overlap">Window overlap <span class="muted">(for example 25% or 512)</span></label>
+      <input id="overlap" value="0%">
+      <label for="gpuLayers">GPU layers <span class="muted">(0 = CPU only, -1 = all)</span></label>
+      <input id="gpuLayers" type="number" min="-1" value="0">
     </div>
     <p class="hint">CPU only is the default because GPU offload fails on some machines and can give different predictions than the CPU. These settings are stored inside each compressed file, so decompression always uses the values the file was made with.</p>
   </details>
 </section>
 
-<section class="drop" id="drop">
-  <div class="big">Drop files here</div>
-  <div class="muted">Any file compresses to <code>.llmz</code>. An <code>.llmz</code> file decompresses.</div>
-  <button id="pickFiles">Choose files…</button>
-</section>
-
-<section class="card" id="textCard">
-  <h2>Compress text</h2>
-  <textarea id="textIn" rows="6" spellcheck="false" placeholder="Type or paste text here"></textarea>
-  <div class="textrow">
-    <span class="hint" id="textCount">0 characters</span>
-    <button class="primary" id="textGo" disabled>Compress text…</button>
+<section class="inputs">
+  <div class="tabs" role="tablist" aria-label="Input">
+    <button role="tab" id="tabFile" aria-selected="true" aria-controls="paneFile">File</button>
+    <button role="tab" id="tabText" aria-selected="false" aria-controls="paneText" tabindex="-1">Text</button>
+  </div>
+  <div class="pane" id="paneFile" role="tabpanel" aria-labelledby="tabFile">
+    <div class="drop" id="drop">
+      <div class="big">Drop files here</div>
+      <div class="muted">Any file compresses to <code>.llmz</code>. An <code>.llmz</code> file decompresses.</div>
+      <button id="pickFiles">Choose files…</button>
+    </div>
+  </div>
+  <div class="pane" id="paneText" role="tabpanel" aria-labelledby="tabText" hidden>
+    <textarea id="textIn" rows="8" spellcheck="false" placeholder="Type or paste text here"></textarea>
+    <div class="textrow">
+      <span class="hint" id="textCount">0 characters</span>
+      <button class="primary" id="textGo" disabled>Compress text…</button>
+    </div>
   </div>
 </section>
 

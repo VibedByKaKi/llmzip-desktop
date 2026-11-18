@@ -21,8 +21,6 @@ button.primary { background: var(--accent); color: #fff; border-color: var(--acc
 #modelName.set { color: var(--text); }
 details { margin-top: 10px; }
 summary { cursor: pointer; color: var(--muted); }
-.adv { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; margin-top: 10px; }
-.adv label { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; color: var(--muted); }
 input { background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; font: inherit; }
 .drop { border: 2px dashed var(--line); border-radius: 12px; padding: 34px 16px; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 8px; }
 .drop.over { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
@@ -48,9 +46,6 @@ a { color: var(--accent); }
 em { color: var(--muted); font-style: normal; font-size: 12.5px; margin-left: 6px; }
 select { background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; font: inherit; min-width: 0; flex: 1; }
 .model select { max-width: 60%; }
-.choices { display: flex; gap: 16px; flex-wrap: wrap; margin: 10px 0; }
-.choice { display: flex; align-items: center; gap: 8px; cursor: pointer; }
-.choice input:disabled + span { opacity: .55; }
 #installLog { max-height: 180px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11.5px; }
 #dlPanel { margin-top: 12px; padding-top: 4px; border-top: 1px solid var(--line); }
 #dlPanel h3 { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin: 12px 0 6px; font-weight: 600; }
@@ -68,3 +63,13 @@ button:disabled:hover { border-color: var(--line); }
 textarea { width: 100%; background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; font: 13px/1.45 ui-monospace, Menlo, Consolas, monospace; resize: vertical; min-height: 90px; }
 .textrow { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 8px; }
 .textrow .hint { margin: 0; }
+.adv { display: grid; grid-template-columns: max-content minmax(0, 200px); gap: 10px 16px; align-items: center; margin-top: 10px; }
+.adv label { font-size: 12.5px; }
+.installrow { display: flex; align-items: center; gap: 12px; margin: 12px 0 4px; flex-wrap: wrap; }
+.installlabel { font-weight: 600; padding-right: 12px; border-right: 1px solid var(--line); }
+.btngroup { display: inline-flex; gap: 6px; }
+.inputs { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 0 16px 16px; }
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin: 0 -16px 14px; padding: 0 16px; }
+.tabs button { background: none; border: 0; border-bottom: 2px solid transparent; border-radius: 0; padding: 10px 14px; margin-bottom: -1px; color: var(--muted); font-weight: 600; }
+.tabs button:hover { color: var(--text); border-color: transparent; border-bottom-color: var(--line); }
+.tabs button[aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); }

@@ -8,7 +8,7 @@ import { MODELS } from '../shared/models.js';
 
 const state = {
   engine: null, enginePath: null, model: null, modelPath: null,
-  installers: { uv: null, pipx: null, git: true }, installer: null,
+  installers: { uv: null, pipx: null, git: true }, installing: null,
   models: [], exclusive: null, // 'install' | 'download' while one runs
   queue: [], busy: false, jobs: new Map(),
 };
@@ -23,7 +23,7 @@ const fmtTime = (s) => s < 60 ? `${s.toFixed(s < 10 ? 1 : 0)} s` : `${Math.floor
 async function loadSettings() {
   state.enginePath = (await tiny.store.get('enginePath')) || null;
   state.modelPath = (await tiny.store.get('modelPath')) || null;
-  state.installer = (await tiny.store.get('installer')) || null;
+  state.tab = (await tiny.store.get('tab')) === 'text' ? 'text' : 'file';
   const adv = (await tiny.store.get('advanced')) || {};
   if (adv.nCtx != null) $('nCtx').value = adv.nCtx;
   if (adv.overlap) $('overlap').value = adv.overlap;
@@ -49,13 +49,19 @@ async function refreshStatus() {
 function renderSetup() {
   $('setup').hidden = !!state.engine;
   const { uv, pipx, git } = state.installers;
-  $('uvState').textContent = uv ? 'found' : 'not found';
-  $('pipxState').textContent = pipx ? 'found' : 'not found';
-  document.querySelector('input[value=uv]').disabled = !uv;
-  document.querySelector('input[value=pipx]').disabled = !pipx;
-  if (!state.installer || !state.installers[state.installer]) state.installer = uv ? 'uv' : pipx ? 'pipx' : null;
-  for (const r of document.querySelectorAll('input[name=installer]')) r.checked = r.value === state.installer;
-  $('noInstaller').hidden = !!(uv || pipx);
+  $('installUv').title = uv ? uv : 'uv was not found on this machine';
+  $('installPipx').title = pipx ? pipx : 'pipx was not found on this machine';
+  const hint = $('noInstaller');
+  const missing = [!uv && 'uv', !pipx && 'pipx'].filter(Boolean);
+  hint.hidden = missing.length === 0;
+  hint.innerHTML = !uv && !pipx
+    ? 'Neither uv nor pipx was found. Install one of them, then choose "Check again". <a href="#" id="uvDocs">How to install uv</a>'
+    : `${missing[0]} was not found, so its button is disabled.`;
+  const docs = $('uvDocs');
+  if (docs) docs.addEventListener('click', (e) => {
+    e.preventDefault();
+    tiny.app.shell.open('https://docs.astral.sh/uv/getting-started/installation/');
+  });
   $('noGit').hidden = git !== false;
 }
 
@@ -86,12 +92,14 @@ function renderCatalog() {
 
 function updateControls() {
   const busy = !!state.exclusive;
-  $('install').disabled = busy || !state.installer;
-  $('install').textContent = state.exclusive === 'install' ? 'Installing…' : 'Install';
+  for (const b of document.querySelectorAll('#setup button[data-tool]')) {
+    const tool = b.dataset.tool;
+    b.disabled = busy || !state.installers[tool];
+    b.textContent = state.installing === tool ? `installing with ${tool}…` : `using ${tool}`;
+  }
   $('cancelInstall').hidden = state.exclusive !== 'install';
   $('dlUrlGo').disabled = busy;
   for (const b of $('catalog').querySelectorAll('button[data-act=get]')) b.disabled = busy;
-  for (const r of document.querySelectorAll('input[name=installer]')) r.disabled = busy || !state.installers[r.value];
 }
 
 async function selectModel(path) {
@@ -127,17 +135,6 @@ $('pickEngine').addEventListener('click', async () => {
   await refreshStatus();
 });
 $('recheck').addEventListener('click', refreshStatus);
-$('uvDocs').addEventListener('click', (e) => {
-  e.preventDefault();
-  tiny.app.shell.open('https://docs.astral.sh/uv/getting-started/installation/');
-});
-for (const r of document.querySelectorAll('input[name=installer]')) {
-  r.addEventListener('change', async () => {
-    state.installer = r.value;
-    await tiny.store.set('installer', r.value);
-    updateControls();
-  });
-}
 
 // ---- install llama-zip ------------------------------------------------------
 
@@ -150,14 +147,15 @@ tiny.api.on('install', ({ text }) => {
   pre.scrollTop = pre.scrollHeight;
 });
 
-$('install').addEventListener('click', async () => {
-  if (!state.installer || state.exclusive) return;
+async function install(tool) {
+  if (!state.installers[tool] || state.exclusive) return;
   state.exclusive = 'install';
+  state.installing = tool;
   installLog = '';
   $('installErr').textContent = '';
   updateControls();
   try {
-    const r = await tiny.api.call('installEngine', { tool: state.installer });
+    const r = await tiny.api.call('installEngine', { tool });
     state.enginePath = r.engine;
     await tiny.store.set('enginePath', r.engine);
   } catch (e) {
@@ -165,8 +163,12 @@ $('install').addEventListener('click', async () => {
     $('installErr').textContent = msg === 'Cancelled' ? 'Install cancelled.' : msg;
   }
   state.exclusive = null;
+  state.installing = null;
   await refreshStatus();
-});
+}
+for (const b of document.querySelectorAll('#setup button[data-tool]')) {
+  b.addEventListener('click', () => install(b.dataset.tool));
+}
 $('cancelInstall').addEventListener('click', () => tiny.api.call('cancel'));
 
 // ---- download models --------------------------------------------------------
@@ -346,6 +348,30 @@ $('jobs').addEventListener('click', async (ev) => {
   }
 });
 
+// ---- input tabs ---------------------------------------------------------------
+
+function showTab(name, focus = false) {
+  state.tab = name;
+  for (const t of ['file', 'text']) {
+    const sel = t === name;
+    const tab = $(t === 'file' ? 'tabFile' : 'tabText');
+    tab.setAttribute('aria-selected', String(sel));
+    tab.tabIndex = sel ? 0 : -1;
+    $(t === 'file' ? 'paneFile' : 'paneText').hidden = !sel;
+    if (sel && focus) tab.focus();
+  }
+  if (name === 'text') $('textIn').focus();
+  tiny.store.set('tab', name);
+}
+$('tabFile').addEventListener('click', () => showTab('file'));
+$('tabText').addEventListener('click', () => showTab('text'));
+$('tabFile').parentElement.addEventListener('keydown', (e) => {
+  if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+    e.preventDefault();
+    showTab(state.tab === 'file' ? 'text' : 'file', true);
+  }
+});
+
 // ---- text input -------------------------------------------------------------
 
 const byteLength = (t) => new TextEncoder().encode(t).length;
@@ -393,5 +419,6 @@ $('pickFiles').addEventListener('click', async () => {
 (async () => {
   await tiny.api.call('ping');
   await loadSettings();
+  showTab(state.tab);
   await refreshStatus();
 })().catch((e) => { document.body.insertAdjacentHTML('afterbegin', `<p class="err">${esc(e)}</p>`); });
