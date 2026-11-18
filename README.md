@@ -2,7 +2,20 @@
 
 A desktop app that compresses files with a language model. Drop a file on the window and it becomes a `.llmz` file. Drop an `.llmz` file and it decompresses and checks the result against a stored SHA-256.
 
-The app is a small [tinyjs](https://github.com/tarwin/tinyjsapp) window (about 6 MB, no Electron). It does not contain a compressor. It drives [llama-zip](https://github.com/AlexBuz/llama-zip), which feeds the predictions of a llama.cpp model into an arithmetic coder. See the 3Blue1Brown video "Compression is Intelligence" for how that works.
+The app is a small [tinyjs](https://github.com/tarwin/tinyjsapp) window (about 6 MB, no Electron). It does not contain a compressor. It drives [llama-zip](https://github.com/AlexBuz/llama-zip), which feeds the predictions of a llama.cpp model into an arithmetic coder. The 3Blue1Brown video [This algorithm changed how I think about compression](https://www.youtube.com/watch?v=qbsb9DpdZ6s) explains the technique. See "How it works" below.
+
+## How it works
+
+The video describes the method this app uses. The sender and the receiver each have the same language model. For every character or token, the model gives a probability for each possible next one. An arithmetic coder uses those probabilities to narrow the interval from 0 to 1 to a small region for the whole text. The compressed file is one binary number inside that region, plus the text length.
+
+The decoder runs the same model on the same text so far and checks which region the number falls in, which recovers the text one step at a time. A message of probability `p` needs about `-log2(p)` bits, which is Shannon's limit, so text the model predicts well becomes very small. The video shows the preamble of the US Constitution shrinking from about 2,500 bits in ASCII to about 45 bits with a half-billion-parameter model.
+
+How this project relates to the video:
+
+- `llama-zip` is the arithmetic coder, and the llama.cpp model is the predictor. Compression quality depends on the model, so a larger model compresses better and runs slower.
+- Decompression needs the exact same model, and any change in the predictions breaks the decoding. This is why the `.llmz` header stores a model fingerprint and why a different machine or build may fail to decompress a file.
+- The Hutter Prize scores the decoder size as well as the compressed data. This app does not, and the model file is the largest part of what you need to keep to decompress.
+- The video's closing argument is that compression and prediction are equivalent, which is why a better language model is a better compressor.
 
 ## Requirements
 
