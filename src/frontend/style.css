@@ -65,11 +65,15 @@ textarea { width: 100%; background: var(--bg); color: var(--text); border: 1px s
 .textrow .hint { margin: 0; }
 .adv { display: grid; grid-template-columns: max-content minmax(0, 200px); gap: 10px 16px; align-items: center; margin-top: 10px; }
 .adv label { font-size: 12.5px; }
-.installrow { display: flex; align-items: center; gap: 12px; margin: 12px 0 4px; flex-wrap: wrap; }
-.installlabel { font-weight: 600; padding-right: 12px; border-right: 1px solid var(--line); }
-.btngroup { display: inline-flex; gap: 6px; }
 .inputs { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 0 16px 16px; }
 .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin: 0 -16px 14px; padding: 0 16px; }
 .tabs button { background: none; border: 0; border-bottom: 2px solid transparent; border-radius: 0; padding: 10px 14px; margin-bottom: -1px; color: var(--muted); font-weight: 600; }
 .tabs button:hover { color: var(--text); border-color: transparent; border-bottom-color: var(--line); }
 .tabs button[aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); }
+.installrow { display: flex; align-items: stretch; gap: 8px; margin: 12px 0 4px; flex-wrap: wrap; }
+.btngroup { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; background: var(--card); }
+.btngroup > * { display: flex; align-items: center; padding: 6px 12px; }
+.grouplabel { background: var(--bg); color: var(--muted); font-weight: 600; }
+.btngroup > button { border: 0; border-left: 1px solid var(--line); border-radius: 0; margin: 0; }
+.btngroup > button:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 12%, transparent); border-color: var(--line); }
+.btngroup > button:disabled:hover { border-color: var(--line); }

@@ -16,19 +16,17 @@
   <h2>Install llama-zip</h2>
   <p>LLM Zip needs the <code>llama-zip</code> tool. Installing it builds llama.cpp from source. That takes 5 to 20 minutes and needs <code>git</code> and a C/C++ compiler.</p>
   <div class="installrow">
-    <span class="installlabel">Install…</span>
-    <div class="btngroup" role="group" aria-label="Installer">
+    <div class="btngroup" role="group" aria-label="Install llama-zip">
+      <span class="grouplabel">Install…</span>
       <button id="installUv" data-tool="uv">using uv</button>
       <button id="installPipx" data-tool="pipx">using pipx</button>
     </div>
     <button id="cancelInstall" hidden>Cancel</button>
-  </div>
-  <p class="hint" id="noInstaller" hidden></p>
-  <p class="hint" id="noGit" hidden>git was not found. The install needs it to fetch llama-zip.</p>
-  <div class="actions">
     <button id="recheck">Check again</button>
     <button id="pickEngine">Use an existing llama-zip…</button>
   </div>
+  <p class="hint" id="noInstaller" hidden></p>
+  <p class="hint" id="noGit" hidden>git was not found. The install needs it to fetch llama-zip.</p>
   <div class="err" id="installErr"></div>
   <pre id="installLog" hidden></pre>
 </section>
