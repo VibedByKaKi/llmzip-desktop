@@ -302,15 +302,21 @@ export const api = {
     return header ? { llmz: true, meta: header.meta } : { llmz: false };
   },
 
-  async compress({ input, output, model, engine, nCtx = 0, overlap = '0%', gpuLayers = 0 }, app) {
+  // Compresses a file (`input`) or typed text (`text`, which needs an `output`
+  // path). With `overwrite`, an existing `output` is replaced, not renamed.
+  async compress({ input, text, name, output, overwrite = false, model, engine, nCtx = 0, overlap = '0%', gpuLayers = 0 }, app) {
     const exe = await findEngine(engine);
     if (!exe) throw new Error('llama-zip was not found. See the setup instructions in the app.');
     if (!model || !(await exists(model))) throw new Error('Choose a model (.gguf file) first.');
+    const textBytes = typeof text === 'string' ? enc.encode(text) : null;
+    if (textBytes && !textBytes.length) throw new Error('Type or paste some text first.');
+    if (textBytes && !output) throw new Error('Choose where to save the compressed text.');
+    if (!textBytes && !input) throw new Error('No input.');
 
     return startJob(app, 'compress', async (job) => {
-      const out = await uniquePath(output || input + '.llmz');
+      const out = overwrite && output ? output : await uniquePath(output || input + '.llmz');
       const part = out + '.part';
-      const inputSize = (await tjs.stat(input)).size;
+      const inputSize = textBytes ? textBytes.length : (await tjs.stat(input)).size;
       const fingerprint = await modelFingerprint(model);
 
       // Hash while the engine reads the file, so the header can carry the
@@ -323,6 +329,11 @@ export const api = {
         await runEngine(
           app, job, engineArgs(exe, model, 'compress', { nCtx, overlap, gpuLayers }),
           async (stdin) => {
+            if (textBytes) {
+              sha.update(textBytes);
+              for (let i = 0; i < textBytes.length; i += CHUNK) await stdin.write(textBytes.subarray(i, i + CHUNK));
+              return;
+            }
             const f = await tjs.open(input, 'r');
             try {
               const buf = new Uint8Array(CHUNK);
@@ -344,7 +355,7 @@ export const api = {
         const payloadSize = chunks.reduce((s, c) => s + c.length, 0);
         const meta = {
           v: FORMAT_VERSION,
-          name: baseName(input),
+          name: textBytes ? (baseName(name || 'text.txt')) : baseName(input),
           size: inputSize,
           sha256: sha.digest(),
           model: fingerprint,

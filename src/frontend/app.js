@@ -260,13 +260,14 @@ async function runJob(job) {
   render();
   try {
     if (!state.engine) throw new Error('llama-zip is not installed. Use the install box above.');
-    const info = await tiny.api.call('inspect', { path: job.path });
+    const info = job.text != null ? { llmz: false } : await tiny.api.call('inspect', { path: job.path });
     job.mode = info.llmz ? 'decompress' : 'compress';
     job.stage = job.mode === 'compress' ? 'Compressing' : 'Decompressing';
     render();
     const common = { input: job.path, model: state.modelPath, engine: state.enginePath };
+    const textArgs = job.text != null ? { text: job.text, output: job.output, overwrite: true, name: 'text.txt' } : {};
     job.result = job.mode === 'compress'
-      ? await tiny.api.call('compress', { ...common, ...advanced() })
+      ? await tiny.api.call('compress', { ...common, ...textArgs, ...advanced() })
       : await tiny.api.call('decompress', { ...common, force: !!job.force });
     job.status = 'done';
   } catch (e) {
@@ -288,7 +289,7 @@ tiny.api.on('job', (ev) => {
 });
 
 function jobHtml(j) {
-  const name = esc(base(j.path));
+  const name = esc(j.label || base(j.path));
   let stateText = '', cls = '', detail = '', bar = '', actions = '';
   if (j.status === 'queued') stateText = 'Waiting';
   if (j.status === 'running') {
@@ -343,6 +344,33 @@ $('jobs').addEventListener('click', async (ev) => {
     render();
     pump();
   }
+});
+
+// ---- text input -------------------------------------------------------------
+
+const byteLength = (t) => new TextEncoder().encode(t).length;
+$('textIn').addEventListener('input', () => {
+  const t = $('textIn').value;
+  $('textCount').textContent = `${[...t].length} characters, ${byteLength(t)} bytes`;
+  $('textGo').disabled = t.length === 0;
+});
+async function compressText() {
+  const text = $('textIn').value;
+  if (!text) return;
+  const output = await tiny.dialog.saveFile({ types: ['llmz'], name: 'text' });
+  if (!output) return;
+  const job = {
+    key: Math.random().toString(36).slice(2), path: output, output, text,
+    label: `Text (${byteLength(text)} bytes)`, status: 'queued', detail: '',
+  };
+  state.jobs.set(job.key, job);
+  state.queue.push(job);
+  render();
+  pump();
+}
+$('textGo').addEventListener('click', compressText);
+$('textIn').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); compressText(); }
 });
 
 // ---- drop / choose ---------------------------------------------------------

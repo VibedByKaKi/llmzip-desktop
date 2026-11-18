@@ -34,7 +34,7 @@ Downloads go to `models/` inside the app's data folder. Only one download or ins
 ## Use
 
 1. Choose or download a model.
-2. Drop one or more files on the window. Files run one at a time.
+2. Drop one or more files on the window, or type or paste text into the "Compress text" box and press "Compress text…" (Cmd or Ctrl+Enter also works). The app asks where to save the `.llmz` file. Text is encoded as UTF-8 and stored under the name `text.txt`. Jobs run one at a time.
 3. Decompress with the same model file. The app compares a fingerprint of the model (size plus SHA-256 of its first and last megabyte) and refuses a different one unless you click "Try anyway".
 
 ## The .llmz format
