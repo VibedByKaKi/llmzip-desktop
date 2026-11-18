@@ -13,23 +13,55 @@
 </header>
 
 <section class="card" id="setup" hidden>
-  <h2>Setup needed</h2>
-  <p>LLM Zip needs the <code>llama-zip</code> command line tool. Install it once with Python:</p>
-  <pre id="installCmd">pipx install git+https://github.com/alexbuz/llama-zip.git</pre>
-  <div class="actions">
-    <button id="copyInstall">Copy command</button>
-    <button id="pickEngine">I installed it somewhere else…</button>
-    <button id="recheck">Check again</button>
+  <h2>Install llama-zip</h2>
+  <p>LLM Zip needs the <code>llama-zip</code> tool. Installing it builds llama.cpp from source. That takes 5 to 20 minutes and needs <code>git</code> and a C/C++ compiler.</p>
+  <div class="choices" id="installers">
+    <label class="choice"><input type="radio" name="installer" value="uv">
+      <span><code>uv tool install</code> <em id="uvState"></em></span></label>
+    <label class="choice"><input type="radio" name="installer" value="pipx">
+      <span><code>pipx install</code> <em id="pipxState"></em></span></label>
   </div>
+  <p class="hint" id="noInstaller" hidden>Neither uv nor pipx was found. Install one of them, then choose "Check again".
+    <a href="#" id="uvDocs">How to install uv</a></p>
+  <p class="hint" id="noGit" hidden>git was not found. The install needs it to fetch llama-zip.</p>
+  <div class="actions">
+    <button class="primary" id="install">Install</button>
+    <button id="cancelInstall" hidden>Cancel</button>
+    <button id="recheck">Check again</button>
+    <button id="pickEngine">Use an existing llama-zip…</button>
+  </div>
+  <div class="err" id="installErr"></div>
+  <pre id="installLog" hidden></pre>
 </section>
 
 <section class="card">
   <h2>Model</h2>
   <div class="model">
-    <div id="modelName" class="muted">No model selected</div>
-    <button id="pickModel">Choose .gguf file…</button>
+    <select id="modelSelect"></select>
+    <div class="actions">
+      <button id="pickModel">Choose file…</button>
+      <button id="toggleDl">Download…</button>
+    </div>
   </div>
-  <p class="hint">Any llama.cpp-compatible model works. A small base model compresses fast. A larger one compresses better. Decompression needs the exact same model file.</p>
+  <div class="hint" id="modelInfo">Decompression needs the exact same model file.</div>
+
+  <div id="dlPanel" hidden>
+    <h3>Models</h3>
+    <ul id="catalog"></ul>
+    <h3>From a URL</h3>
+    <div class="urlrow">
+      <input id="dlUrl" placeholder="https://huggingface.co/…/model.gguf" spellcheck="false">
+      <button id="dlUrlGo">Download</button>
+    </div>
+    <p class="hint">An https link to a .gguf file. Hugging Face "blob" page links work.</p>
+    <div id="dlProgress" hidden>
+      <div class="jstate" id="dlText"></div>
+      <div class="bar"><i class="det" id="dlBar"></i></div>
+      <button id="cancelDl">Cancel</button>
+    </div>
+    <div class="err" id="dlErr"></div>
+  </div>
+
   <details>
     <summary>Advanced</summary>
     <div class="adv">
@@ -55,6 +87,6 @@
   <ul id="jobs"></ul>
 </section>
 
-<script src="app.js"></script>
+<script type="module" src="app.js"></script>
 </body>
 </html>

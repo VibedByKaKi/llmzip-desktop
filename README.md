@@ -7,16 +7,33 @@ The app is a small [tinyjs](https://github.com/tarwin/tinyjsapp) window (about 6
 ## Requirements
 
 - macOS 15 or later, Windows 10/11, or Linux with WebKitGTK 4.1
-- `llama-zip` on your machine:
-  ```sh
-  pipx install git+https://github.com/alexbuz/llama-zip.git
-  ```
-  The app looks on your `PATH` and in `~/.local/bin`, `/opt/homebrew/bin` and `/usr/local/bin`. If yours is elsewhere, use "I installed it somewhere else" in the setup box.
-- A `.gguf` model. Any base model that llama.cpp supports works. SmolLM2-135M (Q8_0) compressed about 115 bytes per second on an Intel i7 laptop CPU, and 6000 bytes of English text shrank to 888 bytes. A 7B or 8B model compresses much better and runs far slower.
+- One of [uv](https://docs.astral.sh/uv/) or [pipx](https://pipx.pypa.io/) to install `llama-zip`, plus `git` and a C/C++ compiler. llama-zip pins `llama-cpp-python`, which compiles llama.cpp on install. Expect 5 to 20 minutes.
+- Disk space and RAM for a model (see below).
+
+## Install llama-zip
+
+On first launch the app offers to install `llama-zip` for you. Pick the installer and press Install:
+
+- **uv** runs `uv tool install --force git+https://github.com/alexbuz/llama-zip.git`
+- **pipx** runs `pipx install --force git+https://github.com/alexbuz/llama-zip.git`
+
+The installer output streams into the window, and Cancel stops it. The app looks for `llama-zip` on your `PATH` and in `~/.local/bin`, `/opt/homebrew/bin` and `/usr/local/bin`. If you installed it somewhere else, choose "Use an existing llama-zip".
+
+If neither installer is on your machine, the app says so and links to the uv install guide. It does not install uv or pipx itself.
+
+## Get a model
+
+Open "Download…" next to the model picker. There are three ways to get a model:
+
+- **The list.** Five base models from SmolLM2 135M (138 MB) to Llama 3.1 8B (4.7 GB), downloaded from Hugging Face. The app checks each file against its published SHA-256 and deletes a file that does not match.
+- **A URL.** Paste any https link to a `.gguf` file. Hugging Face "blob" page links are rewritten to the file link. The app checks the `GGUF` magic bytes, so a link that returns a web page fails instead of saving the page.
+- **A file.** "Choose file…" picks a `.gguf` already on disk.
+
+Downloads go to `models/` inside the app's data folder. Only one download or install runs at a time, and compression jobs wait for it. Speed depends on size: SmolLM2 135M (Q8_0) compressed about 115 bytes per second on an Intel i7 laptop CPU, and 6000 bytes of English text shrank to 888 bytes. A larger model compresses better and runs slower.
 
 ## Use
 
-1. Choose a model.
+1. Choose or download a model.
 2. Drop one or more files on the window. Files run one at a time.
 3. Decompress with the same model file. The app compares a fingerprint of the model (size plus SHA-256 of its first and last megabyte) and refuses a different one unless you click "Try anyway".
 

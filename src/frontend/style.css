@@ -42,3 +42,26 @@ li.job:last-child { border-bottom: 0; padding-bottom: 0; }
 @keyframes slide { 0% { margin-left: -35%; } 100% { margin-left: 100%; } }
 .jactions { grid-column: 1 / -1; display: flex; gap: 8px; margin-top: 4px; }
 .jactions button { padding: 3px 10px; font-size: 12.5px; }
+.err { color: var(--err); font-size: 12.5px; white-space: pre-wrap; overflow-wrap: anywhere; margin-top: 6px; }
+.err:empty { display: none; }
+a { color: var(--accent); }
+em { color: var(--muted); font-style: normal; font-size: 12.5px; margin-left: 6px; }
+select { background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; font: inherit; min-width: 0; flex: 1; }
+.model select { max-width: 60%; }
+.choices { display: flex; gap: 16px; flex-wrap: wrap; margin: 10px 0; }
+.choice { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.choice input:disabled + span { opacity: .55; }
+#installLog { max-height: 180px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11.5px; }
+#dlPanel { margin-top: 12px; padding-top: 4px; border-top: 1px solid var(--line); }
+#dlPanel h3 { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin: 12px 0 6px; font-weight: 600; }
+li.cat { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+li.cat:last-child { border-bottom: 0; }
+.small { font-size: 12.5px; }
+.urlrow { display: flex; gap: 8px; }
+.urlrow input { flex: 1; min-width: 0; }
+#dlProgress { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+#dlProgress .bar { width: 100%; }
+#dlProgress .jstate { text-align: left; }
+button:disabled { opacity: .5; cursor: default; }
+button:disabled:hover { border-color: var(--line); }
+.hidden, [hidden] { display: none !important; }

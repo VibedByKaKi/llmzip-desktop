@@ -4,10 +4,18 @@ const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>"']/g,
   (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-const state = { engine: null, enginePath: null, model: null, modelPath: null, queue: [], busy: false, jobs: new Map() };
+import { MODELS } from '../shared/models.js';
+
+const state = {
+  engine: null, enginePath: null, model: null, modelPath: null,
+  installers: { uv: null, pipx: null, git: true }, installer: null,
+  models: [], exclusive: null, // 'install' | 'download' while one runs
+  queue: [], busy: false, jobs: new Map(),
+};
 
 const base = (p) => p.split(/[\\/]/).pop();
-const fmtBytes = (n) => n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1048576).toFixed(2)} MB`;
+const fmtBytes = (n) => n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(1)} KB`
+  : n < 1073741824 ? `${(n / 1048576).toFixed(1)} MB` : `${(n / 1073741824).toFixed(2)} GB`;
 const fmtTime = (s) => s < 60 ? `${s.toFixed(s < 10 ? 1 : 0)} s` : `${Math.floor(s / 60)} min ${Math.round(s % 60)} s`;
 
 // ---- setup / model ---------------------------------------------------------
@@ -15,6 +23,7 @@ const fmtTime = (s) => s < 60 ? `${s.toFixed(s < 10 ? 1 : 0)} s` : `${Math.floor
 async function loadSettings() {
   state.enginePath = (await tiny.store.get('enginePath')) || null;
   state.modelPath = (await tiny.store.get('modelPath')) || null;
+  state.installer = (await tiny.store.get('installer')) || null;
   const adv = (await tiny.store.get('advanced')) || {};
   if (adv.nCtx != null) $('nCtx').value = adv.nCtx;
   if (adv.overlap) $('overlap').value = adv.overlap;
@@ -22,19 +31,73 @@ async function loadSettings() {
 }
 
 async function refreshStatus() {
-  const st = await tiny.api.call('status', { engine: state.enginePath, model: state.modelPath });
+  const [st, lib, inst] = await Promise.all([
+    tiny.api.call('status', { engine: state.enginePath, model: state.modelPath }),
+    tiny.api.call('listModels'),
+    tiny.api.call('installers'),
+  ]);
   state.engine = st.engine;
   state.model = st.model;
-  $('setup').hidden = !!st.engine;
-  $('installCmd').textContent = 'pipx install git+https://github.com/alexbuz/llama-zip.git';
-  const el = $('modelName');
-  if (st.model) {
-    el.textContent = `${st.model.name} (${fmtBytes(st.model.size)})`;
-    el.classList.add('set');
-  } else {
-    el.textContent = 'No model selected';
-    el.classList.remove('set');
-  }
+  state.models = lib.models;
+  state.installers = inst;
+  renderSetup();
+  renderModel();
+  renderCatalog();
+  updateControls();
+}
+
+function renderSetup() {
+  $('setup').hidden = !!state.engine;
+  const { uv, pipx, git } = state.installers;
+  $('uvState').textContent = uv ? 'found' : 'not found';
+  $('pipxState').textContent = pipx ? 'found' : 'not found';
+  document.querySelector('input[value=uv]').disabled = !uv;
+  document.querySelector('input[value=pipx]').disabled = !pipx;
+  if (!state.installer || !state.installers[state.installer]) state.installer = uv ? 'uv' : pipx ? 'pipx' : null;
+  for (const r of document.querySelectorAll('input[name=installer]')) r.checked = r.value === state.installer;
+  $('noInstaller').hidden = !!(uv || pipx);
+  $('noGit').hidden = git !== false;
+}
+
+function renderModel() {
+  const sel = $('modelSelect');
+  const options = state.models.map((m) => `<option value="${esc(m.path)}">${esc(m.name)} (${fmtBytes(m.size)})</option>`);
+  const external = state.modelPath && !state.models.some((m) => m.path === state.modelPath);
+  if (external) options.unshift(`<option value="${esc(state.modelPath)}">${esc(base(state.modelPath))} (chosen file)</option>`);
+  if (!state.modelPath) options.unshift('<option value="">No model selected</option>');
+  sel.innerHTML = options.join('');
+  sel.value = state.modelPath || '';
+  const info = $('modelInfo');
+  info.textContent = state.model
+    ? `${base(state.modelPath)}, ${fmtBytes(state.model.size)}. Decompression needs this exact file.`
+    : 'Download a model or choose a .gguf file. Decompression needs the exact same model file.';
+}
+
+function renderCatalog() {
+  $('catalog').innerHTML = MODELS.map((m) => {
+    const have = state.models.find((x) => x.name === m.file && x.size === m.size);
+    const action = have
+      ? `<button data-act="use" data-id="${esc(m.id)}">Use</button><button data-act="del" data-id="${esc(m.id)}">Delete</button>`
+      : `<button data-act="get" data-id="${esc(m.id)}" ${state.exclusive ? 'disabled' : ''}>Download</button>`;
+    return `<li class="cat"><div><strong>${esc(m.name)}</strong> <span class="muted">${esc(m.quant)} · ${fmtBytes(m.size)}${have ? ' · downloaded' : ''}</span>
+      <div class="muted small">${esc(m.note)}</div></div><div class="actions">${action}</div></li>`;
+  }).join('');
+}
+
+function updateControls() {
+  const busy = !!state.exclusive;
+  $('install').disabled = busy || !state.installer;
+  $('install').textContent = state.exclusive === 'install' ? 'Installing…' : 'Install';
+  $('cancelInstall').hidden = state.exclusive !== 'install';
+  $('dlUrlGo').disabled = busy;
+  for (const b of $('catalog').querySelectorAll('button[data-act=get]')) b.disabled = busy;
+  for (const r of document.querySelectorAll('input[name=installer]')) r.disabled = busy || !state.installers[r.value];
+}
+
+async function selectModel(path) {
+  state.modelPath = path || null;
+  await tiny.store.set('modelPath', state.modelPath);
+  await refreshStatus();
 }
 
 function advanced() {
@@ -51,12 +114,10 @@ for (const id of ['nCtx', 'overlap', 'gpuLayers']) {
   }));
 }
 
+$('modelSelect').addEventListener('change', (e) => selectModel(e.target.value));
 $('pickModel').addEventListener('click', async () => {
   const p = await tiny.dialog.openFile({ types: ['gguf'] });
-  if (!p) return;
-  state.modelPath = p;
-  await tiny.store.set('modelPath', p);
-  await refreshStatus();
+  if (p) await selectModel(p);
 });
 $('pickEngine').addEventListener('click', async () => {
   const p = await tiny.dialog.openFile();
@@ -66,7 +127,107 @@ $('pickEngine').addEventListener('click', async () => {
   await refreshStatus();
 });
 $('recheck').addEventListener('click', refreshStatus);
-$('copyInstall').addEventListener('click', () => tiny.clipboard.write({ text: $('installCmd').textContent }));
+$('uvDocs').addEventListener('click', (e) => {
+  e.preventDefault();
+  tiny.app.shell.open('https://docs.astral.sh/uv/getting-started/installation/');
+});
+for (const r of document.querySelectorAll('input[name=installer]')) {
+  r.addEventListener('change', async () => {
+    state.installer = r.value;
+    await tiny.store.set('installer', r.value);
+    updateControls();
+  });
+}
+
+// ---- install llama-zip ------------------------------------------------------
+
+let installLog = '';
+tiny.api.on('install', ({ text }) => {
+  installLog = (installLog + text).replace(/\r(?!\n)/g, '\n').slice(-6000);
+  const pre = $('installLog');
+  pre.hidden = false;
+  pre.textContent = installLog;
+  pre.scrollTop = pre.scrollHeight;
+});
+
+$('install').addEventListener('click', async () => {
+  if (!state.installer || state.exclusive) return;
+  state.exclusive = 'install';
+  installLog = '';
+  $('installErr').textContent = '';
+  updateControls();
+  try {
+    const r = await tiny.api.call('installEngine', { tool: state.installer });
+    state.enginePath = r.engine;
+    await tiny.store.set('enginePath', r.engine);
+  } catch (e) {
+    const msg = String(e && e.message ? e.message : e);
+    $('installErr').textContent = msg === 'Cancelled' ? 'Install cancelled.' : msg;
+  }
+  state.exclusive = null;
+  await refreshStatus();
+});
+$('cancelInstall').addEventListener('click', () => tiny.api.call('cancel'));
+
+// ---- download models --------------------------------------------------------
+
+$('toggleDl').addEventListener('click', () => { $('dlPanel').hidden = !$('dlPanel').hidden; });
+
+tiny.api.on('download', ({ received, total }) => {
+  const pct = total ? Math.min(100, (received / total) * 100) : null;
+  $('dlText').textContent = total
+    ? `${fmtBytes(received)} of ${fmtBytes(total)} · ${pct.toFixed(0)}%`
+    : fmtBytes(received);
+  const bar = $('dlBar');
+  bar.className = pct == null ? '' : 'det';
+  bar.style.width = pct == null ? '' : `${pct}%`;
+});
+
+async function download(params, label) {
+  if (state.exclusive) return;
+  state.exclusive = 'download';
+  $('dlErr').textContent = '';
+  $('dlProgress').hidden = false;
+  $('dlText').textContent = `Starting ${label}…`;
+  $('dlBar').style.width = '0';
+  updateControls();
+  try {
+    const r = await tiny.api.call('downloadModel', params);
+    state.modelPath = r.path;
+    await tiny.store.set('modelPath', r.path);
+    if (params.url) $('dlUrl').value = '';
+  } catch (e) {
+    const msg = String(e && e.message ? e.message : e);
+    $('dlErr').textContent = msg === 'Cancelled' ? 'Download cancelled.' : msg;
+  }
+  state.exclusive = null;
+  $('dlProgress').hidden = true;
+  await refreshStatus();
+}
+
+$('catalog').addEventListener('click', async (ev) => {
+  const btn = ev.target.closest('button[data-act]');
+  if (!btn) return;
+  const m = MODELS.find((x) => x.id === btn.dataset.id);
+  const have = state.models.find((x) => x.name === m.file);
+  if (btn.dataset.act === 'get') await download({ id: m.id }, m.name);
+  if (btn.dataset.act === 'use' && have) await selectModel(have.path);
+  if (btn.dataset.act === 'del' && have) {
+    const ok = await tiny.dialog.confirm(`Delete ${m.name}?`, {
+      detail: 'Files compressed with this model cannot be decompressed until you download it again.',
+    });
+    if (!ok) return;
+    await tiny.api.call('deleteModel', { path: have.path });
+    if (state.modelPath === have.path) await selectModel(null);
+    else await refreshStatus();
+  }
+});
+$('dlUrlGo').addEventListener('click', () => {
+  const url = $('dlUrl').value.trim();
+  if (url) download({ url }, 'model');
+});
+$('dlUrl').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('dlUrlGo').click(); });
+$('cancelDl').addEventListener('click', () => tiny.api.call('cancel'));
 
 // ---- jobs ------------------------------------------------------------------
 
@@ -84,6 +245,7 @@ async function pump() {
   if (state.busy) return;
   state.busy = true;
   while (state.queue.length) {
+    while (state.exclusive) await new Promise((r) => setTimeout(r, 300));
     const job = state.queue.shift();
     await runJob(job);
   }
@@ -97,7 +259,7 @@ async function runJob(job) {
   job.error = null;
   render();
   try {
-    if (!state.engine) throw new Error('llama-zip was not found. See the setup box above.');
+    if (!state.engine) throw new Error('llama-zip is not installed. Use the install box above.');
     const info = await tiny.api.call('inspect', { path: job.path });
     job.mode = info.llmz ? 'decompress' : 'compress';
     job.stage = job.mode === 'compress' ? 'Compressing' : 'Decompressing';
