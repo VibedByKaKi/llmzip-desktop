@@ -537,7 +537,6 @@ const TEMPLATE = `
 // Builds the diagram inside `root`. Returns the controls of the diagram.
 export const createDiagram = root => {
     const player = createPlayer();
-    const reduce = globalThis.matchMedia?.('(prefers-reduced-motion: reduce)');
     let context = { total: 0, originalBytes: 0 };
     let raf = 0, last = 0, drawn = '', announced = 0, announcedText = '', pendingSummary = '';
 
@@ -609,7 +608,7 @@ export const createDiagram = root => {
         const key = `${player.pos}:${Math.round(player.t * 90)}:${player.steps.length}`;
         if (key === drawn) return;
         drawn = key;
-        const frame = renderFrame(player.steps, player.pos, player.t, { ...context, reducedMotion: !!reduce?.matches });
+        const frame = renderFrame(player.steps, player.pos, player.t, { ...context });
         el.svg.innerHTML = frame.svg;
         if (pointer) showTip();
         el.text.innerHTML = frame.text;
