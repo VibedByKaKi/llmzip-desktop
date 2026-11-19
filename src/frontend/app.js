@@ -42,15 +42,11 @@ const loadSettings = async () => {
     $('diagramFiles').checked = !!adv.diagramFiles;
 };
 
-// What the backend needs to pick the right prebuilt libllama. The backend cannot tell the CPU.
-let systemCache = null;
-const systemInfo = async () => systemCache ??= { os: tiny.system.os(), arch: await tiny.system.architecture() };
-
 const refreshStatus = async () => {
     const [status, lib, installers] = await Promise.all([
         tiny.api.call('status', { lib: state.libPath, model: state.modelPath }),
         tiny.api.call('listModels'),
-        tiny.api.call('installers', await systemInfo())
+        tiny.api.call('installers')
     ]);
     state.lib = status.lib;
     state.model = status.model;
@@ -178,7 +174,7 @@ const install = async (event, prebuilt = false) => {
     $('installErr').textContent = '';
     updateControls();
     try {
-        await (prebuilt ? tiny.api.call('installPrebuilt', await systemInfo()) : tiny.api.call('installLibllama', { tool }));
+        await (prebuilt ? tiny.api.call('installPrebuilt') : tiny.api.call('installLibllama', { tool }));
     }
     catch (error) {
         const message = errorText(error);

@@ -103,16 +103,53 @@ const wingetCandidates = async () => {
 // nothing gets installed. Any value except empty, `0` or `false` turns it on.
 const libraryHidden = () => !['', '0', 'false'].includes(String(tjs.env.LLMZIP_HIDE_LIBLLAMA ?? '').trim().toLowerCase());
 
-// The prebuilt install unpacks into <app data>/libllama/<tag>/ (see installPrebuilt in main.js).
-export const prebuiltDir = dataDir => joinPath(joinPath(dataDir, 'libllama'), PREBUILT_TAG);
-const prebuiltCandidates = dataDir => !dataDir ? [] : [IS_WIN ? 'llama.dll' : IS_MAC ? 'libllama.dylib' : 'libllama.so']
-    .map(name => joinPath(prebuiltDir(dataDir), name));
+// The CPU of this process, which decides what dlopen accepts (an x86_64 app under Rosetta needs
+// x86_64 libraries). tiny.system.architecture() cannot be used: on macOS it falls back to
+// 'arm64' because txiki's navigator.platform names no CPU there. A Windows x64 build emulated
+// on ARM sees PROCESSOR_ARCHITECTURE=AMD64, which is the right answer for loading its DLLs.
+let archCache = null;
+export const processArch = async () => {
+    if (archCache) return archCache;
+    let raw = '';
+    if (IS_WIN) raw = tjs.env.PROCESSOR_ARCHITECTURE ?? '';
+    else {
+        try {
+            const proc = tjs.spawn(['uname', '-m'], { stdin: 'ignore', stdout: 'pipe', stderr: 'ignore' });
+            const reader = proc.stdout.getReader();
+            const decoder = new TextDecoder();
+            for (;;) {
+                const { value, done } = await reader.read();
+                if (done) break;
+                raw += decoder.decode(value, { stream: true });
+            }
+            await proc.wait();
+        }
+        catch { /* leave raw empty */ }
+    }
+    archCache = /arm64|aarch64/i.test(raw) ? 'arm64' : /x86_64|amd64|x64/i.test(raw) ? 'x86_64' : null;
+    return archCache;
+};
+
+// The key into PREBUILT (src/shared/llama.js), or null when the CPU is not known.
+export const platformKey = async () => {
+    const arch = await processArch();
+    return arch ? `${IS_WIN ? 'windows' : IS_MAC ? 'macos' : 'linux'}-${arch}` : null;
+};
+
+// The prebuilt install unpacks into <app data>/libllama/<tag>-<arch>/ (see installPrebuilt in
+// main.js). The CPU is in the name so a copy for another CPU is never picked up.
+export const prebuiltDir = async dataDir => joinPath(joinPath(dataDir, 'libllama'), `${PREBUILT_TAG}-${await processArch()}`);
+const prebuiltCandidates = async dataDir => {
+    if (!dataDir) return [];
+    const dir = await prebuiltDir(dataDir);
+    return [joinPath(dir, IS_WIN ? 'llama.dll' : IS_MAC ? 'libllama.dylib' : 'libllama.so')];
+};
 
 export const findLibllama = async (chosen, dataDir) => {
     if (libraryHidden()) return null;
     if (chosen && await exists(chosen)) return { path: chosen, source: 'chosen' };
     if (tjs.env.LLAMA_LIB && await exists(tjs.env.LLAMA_LIB)) return { path: tjs.env.LLAMA_LIB, source: 'env' };
-    for (const path of [...prebuiltCandidates(dataDir), ...defaultCandidates(), ...await wingetCandidates()])
+    for (const path of [...await prebuiltCandidates(dataDir), ...defaultCandidates(), ...await wingetCandidates()])
         if (await exists(path)) return { path, source: 'search' };
     return null;
 };
