@@ -593,8 +593,13 @@ export const createDiagram = root => {
 
     const draw = () => {
         const label = player.playing ? 'Pause' : 'Play';
-        el.play.textContent = label;
-        el.play.setAttribute('aria-label', label);
+        // Setting the text replaces its text node, and WebKit drops a click whose mousedown
+        // target was removed before the mouseup. draw() runs every frame while playing, so the
+        // Pause button must only be touched when its label changes.
+        if (el.play.textContent !== label) {
+            el.play.textContent = label;
+            el.play.setAttribute('aria-label', label);
+        }
         const buffered = player.buffered();
         el.skip.hidden = buffered < 3;
         el.buffer.textContent = player.steps.length
