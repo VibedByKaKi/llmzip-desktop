@@ -6,8 +6,9 @@
 // number that grows as bits are settled, an exact number line with the coder's
 // interval, and stacked layers of probability bars. Each layer splits the
 // chosen bar of the layer above. The camera zooms into the chosen bar until it
-// fills the width, the older layers slide up and fade, and the next layer
-// appears under them.
+// fills the middle of the width, with a margin on each side, so the siblings of
+// the older layers stay visible beside it. The older layers slide up and fade,
+// and the next layer appears under them. The last step zooms into [end].
 //
 // Three parts, so the logic runs without a page:
 //   createPlayer()  queue, position, speed and the clock of the animation
@@ -32,6 +33,10 @@ const
     TEXT_CHARS = 300,
     BIN_CHARS = 64,
     MAX_SLIVERS = 240,
+    // Space left on each side of the chosen bar after the zoom, as a fraction of
+    // the bar's width. In the video the dotted lines sit at about 18% and 82%.
+    MARGIN = 0.28,
+    MARGIN_BITS = 20n,
     OTHERS = 'other tokens (not individually listed)';
 
 const
@@ -200,9 +205,12 @@ export const zoomInterval = (base, from, to) => {
 // ten, chosen to give 6 to 15 ticks, so the labels gain digits as the interval
 // narrows. Each tick is { at, whole, fraction, slot }: `at` is its place in the
 // interval (0 to 1), the digits are exact, and `slot` counts steps modulo 60.
+// A view may reach past the ends of the number line, and then only the ticks
+// from 0 to 1 are kept. `zero` and `one` are where those two ends fall in the
+// view (as fractions, outside 0 to 1 when they are off screen).
 export const axisTicks = view => {
     const width = view.hi - view.lo;
-    if (width <= 0n) return { digits: 0, ticks: [] };
+    if (width <= 0n) return { digits: 0, ticks: [], zero: 0, one: 1 };
     const
         hex = width.toString(16),
         log10Width = (Math.log2(parseInt(hex.slice(0, 13), 16)) + 4 * (hex.length - Math.min(13, hex.length)) - view.shift) * Math.log10(2);
@@ -215,9 +223,11 @@ export const axisTicks = view => {
         step = BigInt(mantissa),
         unit = 1n << BigInt(view.shift),
         from = view.lo * scale,
-        to = view.hi * scale,
+        one = unit * scale,
+        clamped = view.hi * scale > one,
+        to = clamped ? one : view.hi * scale,
         span = width * scale,
-        first = (from + step * unit - 1n) / (step * unit) * step;
+        first = ((from < 0n ? 0n : from) + step * unit - 1n) / (step * unit) * step;
     // Turning a number of thousands of digits into text is slow, so only the
     // first tick is converted whole. The others differ from it in the last 18
     // digits and at most one carry into the rest.
@@ -226,7 +236,7 @@ export const axisTicks = view => {
         low = first % TAIL,
         heads = [head.toString(), (head + 1n).toString()],
         ticks = [];
-    for (let m = first; m * unit < to && ticks.length < 40; m += step) {
+    for (let m = first; (clamped ? m * unit <= to : m * unit < to) && ticks.length < 40; m += step) {
         const
             tail = low + (m - first),
             text = ((tail >= TAIL ? heads[1] : heads[0]) + (tail % TAIL).toString().padStart(18, '0')).replace(/^0+/, '').padStart(digits + 1, '0');
@@ -237,7 +247,7 @@ export const axisTicks = view => {
             slot: Number((m / step) % 60n)
         });
     }
-    return { digits, ticks };
+    return { digits, ticks, zero: Number((-from << 40n) / span) / 2 ** 40, one: Number(((one - from) << 40n) / span) / 2 ** 40 };
 };
 
 // ---- frame -----------------------------------------------------------------
@@ -284,9 +294,9 @@ const sliversOf = step => {
     return found;
 };
 
-const barLabel = (candidate, x, w, y) => {
+const barLabel = (candidate, x, w, y, isEos) => {
     const
-        text = visible(candidate.piece, false),
+        text = visible(candidate.piece, isEos && candidate.chosen),
         fit = Math.floor((w - 6) / 6.6);
     if (fit < 2 || !text) return '';
     const shown = text.length > fit ? `${text.slice(0, fit - 1)}…` : text;
@@ -316,12 +326,12 @@ const layerSvg = (step, x0, sx, y, alpha, dim, tips) => {
         const
             [xa, xb] = visibleSpan(a, b),
             w = Math.max(candidate.chosen ? 1.5 : 0.8, xb - xa),
-            opacity = candidate.chosen ? 1 : 1 - 0.65 * dim;
+            opacity = candidate.chosen ? 1 : 1 - 0.5 * dim;
         out += `<rect class="dg-bar${i % 2 ? ' dg-alt' : ''}${candidate.chosen ? ' dg-chosen' : ''}" x="${xa.toFixed(2)}" y="${y0}" width="${w.toFixed(2)}" height="${ROW_HEIGHT}" opacity="${opacity.toFixed(3)}"${tips ? ` data-piece="${esc(visible(candidate.piece, step.isEos && candidate.chosen))}" data-p="${pct(candidate.p)}"` : ''}/>`;
         if (b - a < 8 && candidate.chosen)
             out += `<rect class="dg-pin" x="${(xa + w / 2 - 1).toFixed(1)}" y="${(y - 5).toFixed(1)}" width="2" height="${ROW_HEIGHT + 10}"/>`;
         else
-            out += barLabel(candidate, xa, xb - xa, y);
+            out += barLabel(candidate, xa, xb - xa, y, step.isEos);
     });
     return `${out}</g>`;
 };
@@ -341,19 +351,32 @@ const layerFrames = (steps, pos, count) => {
     return frames;
 };
 
-// The camera in the newest layer's coordinates, from the whole layer (z = 0) to
-// its chosen bar (z = 1). The zoom is exponential, so the view narrows by the
-// same factor in every frame. It scales about the point that the bar's edges
-// map to, c = lo / (1 - f) for a bar of width f.
-const cameraView = (step, z) => {
-    const f = step.hi - step.lo;
-    if (z <= 0 || step.isEos) return { from: 0, to: 1 };
-    if (z >= 1) return { from: step.lo, to: step.hi };
-    if (f > 0.999999) return { from: lerp(0, step.lo, z), to: lerp(1, step.hi, z) };
+// The camera in the newest layer's coordinates. A step starts where the one
+// before ended: that step's chosen bar, which is this layer's [0, 1], with a
+// margin on each side. The first step starts on the whole layer. The zoom ends
+// on the chosen bar plus its margins (z = 1). It is exponential, so the view
+// narrows by the same factor in every frame, about the fixed point c that the
+// start and end views map onto each other around.
+const cameraView = (step, z, first) => {
     const
-        c = step.lo / (1 - f),
-        g = f ** z;
-    return { from: c * (1 - g), to: c + (1 - c) * g };
+        f = step.hi - step.lo,
+        start = first ? { from: 0, to: 1 } : { from: -MARGIN, to: 1 + MARGIN },
+        end = { from: step.lo - MARGIN * f, to: step.hi + MARGIN * f };
+    if (z <= 0) return start;
+    if (z >= 1) return end;
+    const ratio = (end.to - end.from) / (start.to - start.from);
+    if (Math.abs(1 - ratio) < 1e-6) return { from: lerp(start.from, end.from, z), to: lerp(start.to, end.to, z) };
+    const
+        c = (end.from - start.from * ratio) / (1 - ratio),
+        g = ratio ** z;
+    return { from: c + (start.from - c) * g, to: c + (start.to - c) * g };
+};
+
+// The exact interval of the camera's end view: the coder's interval after the
+// step, widened by the margin on both sides.
+const marginInterval = interval => {
+    const margin = (interval.hi - interval.lo) * BigInt(Math.round(MARGIN * 2 ** Number(MARGIN_BITS)));
+    return { lo: (interval.lo << MARGIN_BITS) - margin, hi: (interval.hi << MARGIN_BITS) + margin, shift: interval.shift + Number(MARGIN_BITS) };
 };
 
 const fade = idx => clamp((idx + 1) / 2.2) ** 1.5;
@@ -367,7 +390,7 @@ const labelOf = (tick, shared) => {
 // the ticks move and gain digits with the zoom.
 const axisSvg = (view, x1, x2, step, e) => {
     const
-        { ticks } = axisTicks(view),
+        { ticks, zero, one } = axisTicks(view),
         shared = ticks.length > 1 ? [...ticks[0].fraction].findIndex((c, i) => ticks.some(tick => tick.fraction[i] !== c)) : 0,
         common = shared < 0 ? ticks[0].fraction.length : shared,
         spacing = ticks.length > 1 ? (ticks[1].at - ticks[0].at) * BAR_WIDTH : BAR_WIDTH,
@@ -376,7 +399,9 @@ const axisSvg = (view, x1, x2, step, e) => {
     let out = `<text class="dg-caption" x="${X0}" y="12">Number line: the coder's interval. All tokens so far narrow [0, 1] to a width of 2^-${fmtBits(step.cumulativeBits)}.</text>`;
     if (common > 0)
         out += `<text class="dg-caption" x="${X0}" y="25">Every tick starts with 0.${common > 24 ? '…' : ''}${ticks[0].fraction.slice(Math.max(0, common - 24), common)}…</text>`;
-    out += `<line class="dg-axis" x1="${X0}" y1="${AXIS_Y}" x2="${X0 + BAR_WIDTH}" y2="${AXIS_Y}"/>`;
+    const [lineFrom, lineTo] = visibleSpan(X0 + zero * BAR_WIDTH, X0 + one * BAR_WIDTH);
+    if (lineTo > lineFrom)
+        out += `<line class="dg-axis" x1="${lineFrom.toFixed(1)}" y1="${AXIS_Y}" x2="${lineTo.toFixed(1)}" y2="${AXIS_Y}"/>`;
     const [a, b] = visibleSpan(x1, x2);
     if (b > a)
         out += `<rect class="dg-range" opacity="${e.toFixed(3)}" x="${a.toFixed(1)}" y="${AXIS_Y - 3}" width="${Math.max(2, b - a).toFixed(1)}" height="6" rx="2"/>`;
@@ -437,18 +462,19 @@ const statsText = (step, total, originalBytes) => {
 // Everything the page shows for step `pos` at progress `t` (0 to 1). Pure.
 // One step plays as: the new layer fades in under the older ones (0 to 0.3),
 // its chosen bar is highlighted (0.3 to 0.5), then the camera zooms into the
-// chosen bar (0.6 to 1). Once the stack is full, every layer also slides up one
-// row during the zoom and the oldest fades out. With reduced
-// motion the frame is the settled one, with no zoom.
+// chosen bar and its margins (0.6 to 1). The end token zooms the same way. Once
+// the stack is full, every layer also slides up one row during the zoom and the
+// oldest fades out. With reduced motion the frame is the settled one, at the
+// end of the zoom.
 export const renderFrame = (steps, pos, t, { total = 0, originalBytes = 0, reducedMotion = false } = {}) => {
     if (!steps.length) return { svg: '', text: '', binary: '', line: '', total: '', ratio: 0, summary: '' };
     const
         frameT = reducedMotion ? 1 : t,
         e = ease(clamp(frameT / 0.3)),
         hold = clamp((frameT - 0.3) / 0.2),
-        z = reducedMotion || steps[pos].isEos ? 0 : ease(clamp((frameT - 0.6) / 0.4)),
+        z = ease(clamp((frameT - 0.6) / 0.4)),
         step = steps[pos],
-        view = cameraView(step, z),
+        view = cameraView(step, z, pos === 0),
         k = BAR_WIDTH / (view.to - view.from),
         frames = layerFrames(steps, pos, SLOTS + 1);
     // The newest layer spans the camera's [0, 1], so its chosen bar is at:
@@ -456,7 +482,7 @@ export const renderFrame = (steps, pos, t, { total = 0, originalBytes = 0, reduc
         x0 = X0 - view.from * k,
         c = chosenOf(step),
         [a, b] = [x0 + c.lo * k, x0 + c.hi * k],
-        exact = z >= 1 ? coderInterval(steps, pos) : zoomInterval(coderInterval(steps, pos - 1), view.from, view.to);
+        exact = z >= 1 ? marginInterval(coderInterval(steps, pos)) : zoomInterval(coderInterval(steps, pos - 1), view.from, view.to);
     let svg = axisSvg(exact, a, b, step, e);
     let stack = '';
     for (let i = frames.length - 1; i >= 0; i--) {

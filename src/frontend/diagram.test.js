@@ -151,6 +151,54 @@ const synthetic = count => {
     check(coderInterval(player.steps, 19).lo === coderInterval(steps, 19).lo, 'the player keeps the interval across pushes');
 }
 
+// ---- camera ---------------------------------------------------------------------
+{
+    const
+        { steps } = fixture,
+        last = steps.length - 1,
+        guides = frame => [...frame.svg.matchAll(/class="dg-guide"[^>]* x1="([\d.]+)"/g)].map(match => Number(match[1])),
+        // The dotted lines at the end of the zoom: the chosen bar with 0.28 of its width on each side.
+        left = 20 + 680 * 0.28 / 1.56,
+        right = 20 + 680 * 1.28 / 1.56,
+        // x and width of the lowest chosen bar drawn (the legend is below the rows).
+        chosen = frame => [...frame.svg.matchAll(/dg-bar[^"]*dg-chosen"[^>]* x="([\d.-]+)" y="([\d.]+)" width="([\d.]+)"/g)].filter(match => Number(match[2]) < 280).map(match => `${match[1]} ${match[3]}`).pop();
+    steps.forEach((step, pos) => {
+        const [x1, x2] = guides(renderFrame(steps, pos, 1));
+        check(Math.abs(x1 - left) < 0.2 && Math.abs(x2 - right) < 0.2, `camera: step ${pos} ends with the bar between the dotted lines (${x1}, ${x2})`);
+        // The next layer starts where the zoom ended: the chosen bar of the layer
+        // above is in the same place and as wide as at the end of the last step.
+        if (pos > 0)
+            check(chosen(renderFrame(steps, pos, 0)) === chosen(renderFrame(steps, pos - 1, 1)), `camera: step ${pos} starts where step ${pos - 1} ended`);
+    });
+    // The end token zooms like any other, and its last frame is the settled one.
+    check(steps[last].isEos, 'camera: the fixture ends with the end token');
+    check(guides(renderFrame(steps, last, 0.8)).join() !== guides(renderFrame(steps, last, 1)).join(), 'camera: the end step is mid-zoom at 0.8');
+    check(renderFrame(steps, last, 0).svg !== renderFrame(steps, last, 1).svg, 'camera: the end step changes while it plays');
+    check(renderFrame(steps, last, 0.2, { reducedMotion: true }).svg === renderFrame(steps, last, 1).svg, 'camera: reduced motion shows the settled end frame');
+    check(renderFrame(steps, last, 1).svg.includes('>[end]<'), 'camera: the end bar is labelled');
+    // Older rows keep their siblings: more bars than the chosen one at the end of the zoom.
+    check((renderFrame(steps, 12, 1).svg.match(/class="dg-bar/g) || []).length > 6, 'camera: older rows keep their other bars');
+    // The player ends on the settled frame of the end step, and Back and Step work around it.
+    const player = createPlayer();
+    player.push(steps);
+    player.final = true;
+    Object.assign(player, { pos: last, t: 1 });
+    check(player.finished(), 'camera: the player is finished after the end step');
+    player.back();
+    check(player.pos === last - 1 && player.t === 1, 'camera: Back leaves the end step');
+    player.step();
+    check(player.pos === last && player.t === 0, 'camera: Step enters the end step');
+    player.restart();
+    check(player.pos === 0 && player.t === 0, 'camera: Restart goes to the first step');
+    // A view that reaches past 0 and 1 is ticked between 0 and 1 only.
+    const
+        shift = 65,
+        wide = axisTicks({ lo: -(1n << 62n), hi: (1n << 65n) + (1n << 62n), shift });
+    check(wide.ticks.length > 5 && wide.ticks.every(tick => tick.at > 0 && tick.at < 1), 'camera: ticks of a wide view stay inside the view');
+    check(wide.ticks[0].whole + wide.ticks[0].fraction === '0' + '0'.repeat(wide.digits) && Math.abs(wide.zero - 0.125 / 1.25) < 1e-9 && Math.abs(wide.one - 1.125 / 1.25) < 1e-9, 'camera: ticks start at 0 and the ends of the line are placed');
+    check(wide.ticks.every(tick => Number(tick.whole) <= 1), 'camera: no tick is past 1');
+}
+
 // ---- tick labels ------------------------------------------------------------------
 {
     const whole = axisTicks({ lo: 0n, hi: 1n << 65n, shift: 65 });
