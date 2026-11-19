@@ -1,16 +1,12 @@
 # LLM Zip
 
-<table><tr><td>
+<img align="right" src="./screenshot.webp" alt="Screenshot of LLM Zip" width="440">
 
 A desktop app that compresses files with a language model. Drop a file on the window and it becomes a `.llmz` file. Drop an `.llmz` file and it decompresses and checks the result against a stored SHA-256.
 
 The app is a small [tinyjs](https://github.com/tarwin/tinyjsapp) window (about 6 MB, no Electron). The compressor is [llama-zip.js](https://github.com/VibedByKaKi/llama-zip.js), a JavaScript port of [llama-zip](https://github.com/AlexBuz/llama-zip) that calls the llama.cpp library (libllama) through FFI. The app runs it in a worker thread, so the window stays responsive. The 3Blue1Brown video [This algorithm changed how I think about compression](https://www.youtube.com/watch?v=qbsb9DpdZ6s) explains the technique. See "How it works" below.
 
-</td><td>
-
-![](./screenshot.webp)
-
-</td></tr></table>
+<br clear="right">
 
 ## How it works
 
