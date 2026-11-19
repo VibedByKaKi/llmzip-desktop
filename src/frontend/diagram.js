@@ -308,7 +308,7 @@ const layerSvg = (step, x0, sx, y, alpha, dim, tips) => {
         const [a, b] = visibleSpan(x0 + marks[i] * sx, x0 + marks[i + 1] * sx);
         if (b > a) path += `M${a.toFixed(2)} ${y0}h${Math.max(0.5, b - a).toFixed(2)}v${ROW_HEIGHT}h-${Math.max(0.5, b - a).toFixed(2)}z`;
     }
-    let out = `<g opacity="${alpha.toFixed(3)}"><g class="dg-others"><title>${OTHERS}</title><rect class="dg-track" x="${from.toFixed(2)}" y="${y0}" width="${(to - from).toFixed(2)}" height="${ROW_HEIGHT}" rx="2"/>` +
+    let out = `<g opacity="${alpha.toFixed(3)}"><g class="dg-others" data-other="${OTHERS}"><rect class="dg-track" x="${from.toFixed(2)}" y="${y0}" width="${(to - from).toFixed(2)}" height="${ROW_HEIGHT}" rx="2"/>` +
         (path ? `<path class="dg-sliver" d="${path}"/>` : '') + '</g>';
     step.candidates.forEach((candidate, i) => {
         const [a, b] = [x0 + candidate.lo * sx, x0 + candidate.hi * sx];
@@ -317,8 +317,7 @@ const layerSvg = (step, x0, sx, y, alpha, dim, tips) => {
             [xa, xb] = visibleSpan(a, b),
             w = Math.max(candidate.chosen ? 1.5 : 0.8, xb - xa),
             opacity = candidate.chosen ? 1 : 1 - 0.65 * dim;
-        out += `<rect class="dg-bar${i % 2 ? ' dg-alt' : ''}${candidate.chosen ? ' dg-chosen' : ''}" x="${xa.toFixed(2)}" y="${y0}" width="${w.toFixed(2)}" height="${ROW_HEIGHT}" opacity="${opacity.toFixed(3)}">` +
-            `${tips ? `<title>${esc(visible(candidate.piece, step.isEos && candidate.chosen))} ${pct(candidate.p)}</title>` : ''}</rect>`;
+        out += `<rect class="dg-bar${i % 2 ? ' dg-alt' : ''}${candidate.chosen ? ' dg-chosen' : ''}" x="${xa.toFixed(2)}" y="${y0}" width="${w.toFixed(2)}" height="${ROW_HEIGHT}" opacity="${opacity.toFixed(3)}"${tips ? ` data-piece="${esc(visible(candidate.piece, step.isEos && candidate.chosen))}" data-p="${pct(candidate.p)}"` : ''}/>`;
         if (b - a < 8 && candidate.chosen)
             out += `<rect class="dg-pin" x="${(xa + w / 2 - 1).toFixed(1)}" y="${(y - 5).toFixed(1)}" width="2" height="${ROW_HEIGHT + 10}"/>`;
         else
@@ -396,7 +395,7 @@ const axisSvg = (view, x1, x2, step, e) => {
 const legendSvg = () => {
     const y = HEIGHT - 14;
     return `<rect class="dg-bar dg-chosen" x="${X0}" y="${y}" width="16" height="9"/><text class="dg-caption" x="${X0 + 22}" y="${y + 8}">chosen token</text>` +
-        `<g class="dg-others"><title>${OTHERS}</title><rect class="dg-track" x="${X0 + 120}" y="${y}" width="16" height="9"/>` +
+        `<g class="dg-others" data-other="${OTHERS}"><rect class="dg-track" x="${X0 + 120}" y="${y}" width="16" height="9"/>` +
         `<path class="dg-sliver" d="M${X0 + 122} ${y}h1v9h-1zM${X0 + 126} ${y}h1.5v9h-1.5zM${X0 + 131} ${y}h1v9h-1z"/>` +
         `<text class="dg-caption" x="${X0 + 142}" y="${y + 8}">${OTHERS}</text></g>`;
 };
@@ -506,6 +505,7 @@ const TEMPLATE = `
   <button type="button" data-dg="live" aria-label="Skip to the newest step" hidden>Skip to latest</button>
   <span class="dg-buffer muted small"></span>
 </div>
+<div class="dg-tip" aria-hidden="true" hidden></div>
 <div class="dg-live" role="status" aria-live="polite"></div>`;
 
 // Builds the diagram inside `root`. Returns the controls of the diagram.
@@ -523,9 +523,37 @@ export const createDiagram = root => {
     const el = {
         text: $('.dg-text'), binary: $('.dg-binary'), svg: $('.dg-svg'), line: $('.dg-line'), total: $('.dg-total'),
         ratio: $('.dg-ratio i'), live: $('.dg-live'), play: $('[data-dg=play]'), speed: $('[data-dg=speed]'),
-        skip: $('[data-dg=live]'), buffer: $('.dg-buffer')
+        skip: $('[data-dg=live]'), buffer: $('.dg-buffer'), tip: $('.dg-tip')
     };
     el.speed.innerHTML = SPEEDS.map(s => `<option value="${s}"${s === 1 ? ' selected' : ''}>${s === 'max' ? 'fastest' : `${s}x`}</option>`).join('');
+
+    // The tooltip is HTML, so the token can sit in a code element. The SVG is
+    // rebuilt on every frame, so the bar under the pointer is looked up again
+    // after each draw as well as on every pointer move.
+    let pointer = null;
+    const showTip = () => {
+        const target = pointer && document.elementFromPoint(pointer.x, pointer.y)?.closest('[data-piece], [data-other]');
+        if (!target || !el.svg.contains(target)) {
+            el.tip.hidden = true;
+            return;
+        }
+        el.tip.innerHTML = target.dataset.piece === undefined
+            ? esc(target.dataset.other)
+            : `<code>${esc(target.dataset.piece)}</code> ${esc(target.dataset.p)}`;
+        el.tip.hidden = false;
+        const box = root.getBoundingClientRect();
+        const left = Math.min(pointer.x - box.left + 14, box.width - el.tip.offsetWidth - 4);
+        el.tip.style.left = `${Math.max(4, left)}px`;
+        el.tip.style.top = `${pointer.y - box.top + 18}px`;
+    };
+    el.svg.addEventListener('pointermove', event => {
+        pointer = { x: event.clientX, y: event.clientY };
+        showTip();
+    });
+    el.svg.addEventListener('pointerleave', () => {
+        pointer = null;
+        showTip();
+    });
 
     const announce = (force = false) => {
         const now = Date.now();
@@ -552,6 +580,7 @@ export const createDiagram = root => {
         drawn = key;
         const frame = renderFrame(player.steps, player.pos, player.t, { ...context, reducedMotion: !!reduce?.matches });
         el.svg.innerHTML = frame.svg;
+        if (pointer) showTip();
         el.text.innerHTML = frame.text;
         el.binary.innerHTML = frame.binary;
         el.line.innerHTML = frame.line;
