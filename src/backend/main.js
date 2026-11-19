@@ -9,10 +9,11 @@
 // original size and SHA-256.
 import { createHash } from 'tjs:hashing';
 
+import { TESTED_TEXT } from '../shared/llama.js';
 import { MODELS } from '../shared/models.js';
 
 import {
-    findLibllama, findTool, GUIDE, installCommand, installTool, IS_WIN, joinPath, LLAMA_PACKAGE, libraryBuild, toolEnv
+    describeBuild, findLibllama, findTool, GUIDE, installCommand, installTool, IS_WIN, joinPath, LLAMA_PACKAGE, libraryBuild, sameBuild, toolEnv
 } from './libllama.js';
 import LZMA from './vendor/lzma-js/lzma-c.js';
 
@@ -213,6 +214,7 @@ export const api = {
                 for (const line of [
                     '[dry run] Resolving packages',
                     `[dry run] Downloading ${LLAMA_PACKAGE} (simulated)`,
+                    `[dry run] The latest release may be newer than the tested ${TESTED_TEXT}`,
                     '[dry run] Nothing was installed. Unset LLMZIP_DRY_RUN_INSTALL to install for real.'
                 ]) {
                     await sleep(700);
@@ -488,9 +490,11 @@ const modelFingerprint = async path => {
 const differences = async (meta, libPath, info) => {
     const lines = [];
     const stored = meta.llama || {};
+    // The worker's answer comes from the library. A file name only says the version.
     const build = info?.llamaBuild ?? await libraryBuild(libPath);
-    if (stored.build && build && stored.build !== build)
-        lines.push(`The file was made with llama.cpp build ${stored.build}, this machine has build ${build}.`);
+    if (stored.build && build && !sameBuild(stored.build, build))
+        lines.push(`The file was made with llama.cpp ${describeBuild(stored.build)}, this machine has llama.cpp ${describeBuild(build)}. ` +
+            'Predictions can differ between llama.cpp versions, so the file may not decode here.');
     if (stored.system && info?.llamaSystem && stored.system !== info.llamaSystem)
         lines.push(`CPU features differ.\nThen: ${stored.system}\nNow: ${info.llamaSystem}`);
     return lines.join('\n');

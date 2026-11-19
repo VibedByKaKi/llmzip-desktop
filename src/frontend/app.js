@@ -1,3 +1,4 @@
+import { TESTED_TEXT } from '../shared/llama.js';
 import { MODELS } from '../shared/models.js';
 
 import { createDiagram } from './diagram.js';
@@ -65,8 +66,8 @@ const renderSetup = () => {
     button.dataset.tool = tool;
     button.title = exe || `${name} was not found on this machine`;
     $('setupHow').textContent = tool === 'winget'
-        ? 'winget downloads a prebuilt package (ggml.llamacpp), no compiler needed.'
-        : 'Homebrew normally downloads a prebuilt package (llama.cpp), so the install takes a minute or two.';
+        ? `winget downloads a prebuilt package (ggml.llamacpp), no compiler needed. It installs the latest release, which can be newer than llama.cpp ${TESTED_TEXT}, the version LLM Zip was tested with. A newer version is refused until LLM Zip is updated.`
+        : `Homebrew normally downloads a prebuilt package (llama.cpp), so the install takes a minute or two. LLM Zip was tested with llama.cpp ${TESTED_TEXT}.`;
     $('dryNote').hidden = !dryRun;
     const hint = $('noInstaller');
     hint.hidden = !!exe || !!dryRun;

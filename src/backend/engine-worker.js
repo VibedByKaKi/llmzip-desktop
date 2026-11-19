@@ -14,8 +14,8 @@
 //   { type: 'steps', steps }  coalesced coder steps for the diagram
 //   { type: 'result', bytes, tokens }
 //   { type: 'error', message, aborted }
-import { dlopen } from 'tjs:ffi';
-
+import { libraryBuild } from './libllama.js';
+import { libraryInfo } from './vendor/llama-zip.js/js/llama.js';
 import { LlamaZip } from './vendor/llama-zip.js/js/llamazip.js';
 import { bytesToUtf8 } from './vendor/llama-zip.js/js/utf8.js';
 
@@ -41,23 +41,31 @@ const parseOverlap = (text, nCtx) => {
     return tokens;
 };
 
-// The llama.cpp build number comes from the library's file name and the CPU
-// features from llama_print_system_info. Both are optional, a failure gives null.
-const libraryInfo = async lib => {
-    const info = { build: null, system: null };
-    if (!lib) return info;
+// The version and build that libllama reports ('1.0.0 (build 12359)') and the CPU features
+// from llama_print_system_info. The file name is only a fallback for the version. Both are
+// optional, a failure gives null.
+const libraryDetails = async (zip, lib) => {
+    let build = zip.model.llamaBuild || null;
+    if (!build && lib)
+        try {
+            build = await libraryBuild(lib);
+        }
+        catch { /* keep null */ }
+    const system = String(zip.model.systemInfo ?? '').trim().replace(/\s+/g, ' ');
+    return { build, system: system || null };
+};
+
+// llama.cpp logs "unknown model architecture: 'xyz'" and the load fails, when the model is
+// newer than the library.
+const loadFailure = error => {
+    const message = String(error?.message ?? error);
+    if (!/unknown model architecture/i.test(message)) return error;
+    let version = 'unknown version';
     try {
-        const real = await tjs.realPath(lib);
-        const match = real.split(/[\\/]/).pop().match(/\.(\d{3,})(?:\.dylib|\.so)?$/) || real.match(/llama\.cpp[\\/](\d{3,})[\\/]/);
-        if (match) info.build = Number(match[1]);
+        version = libraryInfo().text;
     }
-    catch { /* keep null */ }
-    try {
-        const symbols = dlopen(lib, { llama_print_system_info: { args: [], returns: 'string' } }).symbols;
-        info.system = String(symbols.llama_print_system_info()).trim().replace(/\s+/g, ' ');
-    }
-    catch { /* keep null */ }
-    return info;
+    catch { /* the message is still right without the version */ }
+    return new Error(`This model needs a newer llama.cpp than the one installed (${version}). Update llama.cpp or choose another model.`);
 };
 
 const pieceLength = step => step.pieceBytes ? step.pieceBytes.length : textEncoder.encode(step.piece).length;
@@ -66,15 +74,21 @@ const run = async job => {
     if (job.lib) tjs.env.LLAMA_LIB = job.lib;
     controller = new AbortController();
     const { mode, params } = job;
-    const zip = new LlamaZip(job.model, {
-        nCtx: params.nCtx,
-        nGpuLayers: params.gpuLayers,
-        nThreads: params.nThreads,
-        nBatch: params.nBatch
-    });
+    let zip;
+    try {
+        zip = new LlamaZip(job.model, {
+            nCtx: params.nCtx,
+            nGpuLayers: params.gpuLayers,
+            nThreads: params.nThreads,
+            nBatch: params.nBatch
+        });
+    }
+    catch (error) {
+        throw loadFailure(error);
+    }
     try {
         const overlap = params.overlapTokens ?? parseOverlap(params.overlap, zip.model.nCtx);
-        const lib = await libraryInfo(job.lib);
+        const lib = await libraryDetails(zip, job.lib);
         let total = job.tokens ?? 0;
         if (mode === 'compress')
             total = zip.model.tokenize(bytesToUtf8(job.bytes), { addBos: false }).length + 1;

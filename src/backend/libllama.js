@@ -5,6 +5,9 @@
 // one of llama.js: the LLAMA_LIB variable, then the usual Homebrew and system
 // directories. A file the user chose in the app comes before all of them.
 // Windows gets one more place, where winget unpacks the package.
+//
+// The library files are libllama.so.1.0.0 (Linux), libllama.1.dylib (macOS) and
+// llama.dll (Windows). Only llama.cpp 1.0.0 is accepted, see src/shared/llama.js.
 export const LLAMA_PACKAGE = 'llama.cpp';
 export const WINGET_ID = 'ggml.llamacpp';
 
@@ -71,8 +74,8 @@ const defaultCandidates = () => {
         '/home/linuxbrew/.linuxbrew/lib', `${home}/.linuxbrew/lib`, '/usr/local/lib', '/usr/lib', '/usr/lib64',
         '/usr/lib/x86_64-linux-gnu', '/usr/lib/aarch64-linux-gnu', '/lib/x86_64-linux-gnu'
     ];
-    return IS_MAC ? macDirs.map(dir => `${dir}/libllama.dylib`)
-                  : linuxDirs.flatMap(dir => [`${dir}/libllama.so`, `${dir}/libllama.so.0`]);
+    return IS_MAC ? macDirs.flatMap(dir => [`${dir}/libllama.dylib`, `${dir}/libllama.1.dylib`])
+                  : linuxDirs.flatMap(dir => [`${dir}/libllama.so`, `${dir}/libllama.so.1`]);
 };
 
 // winget unpacks the zip into %LOCALAPPDATA%\Microsoft\WinGet\Packages\ggml.llamacpp_*
@@ -100,16 +103,37 @@ export const findLibllama = async chosen => {
     return null;
 };
 
-// The llama.cpp build number, read from the file name of the real library
-// (libllama.so.0.0.10180, libllama.0.0.10180.dylib). Null when the name has none.
+// What the file name says about the version, for when the library cannot be asked. Returns
+// '1.0.0' for libllama.so.1.0.0, libllama.1.0.0.dylib and a Homebrew Cellar path ending in
+// llama.cpp/1.0.0/..., a build number such as 10180 for the old names (libllama.so.0.0.10180),
+// or null. The library itself tells more through llama_version(), which the worker prefers.
 export const libraryBuild = async path => {
     let real = path;
     try {
         real = await tjs.realPath(path);
     }
     catch { /* keep the given path */ }
-    const match = real.split(/[\\/]/).pop().match(/\.(\d{3,})(?:\.dylib|\.so)?$/) || real.match(/llama\.cpp[\\/](\d{3,})[\\/]/);
-    return match ? Number(match[1]) : null;
+    const name = real.split(/[\\/]/).pop();
+    // Before 1.0.0 the version was 0.0.<build>.
+    const old = name.match(/^libllama\.so\.0\.0\.(\d{3,})$/) || name.match(/^libllama\.0\.0\.(\d{3,})\.dylib$/) || real.match(/llama\.cpp[\\/](\d{3,})[\\/]/);
+    if (old) return Number(old[1]);
+    const match = name.match(/^libllama\.so\.(\d+\.\d+\.\d+)$/) || name.match(/^libllama\.(\d+\.\d+\.\d+)\.dylib$/)
+        || real.match(/llama\.cpp[\\/](\d+\.\d+\.\d+)[\\/]/);
+    return match ? match[1] : null;
+};
+
+// A build number as llama.cpp used before 1.0.0 (10180, or '10180' after a JSON round trip).
+const isBuildNumber = build => typeof build === 'number' || /^\d+$/.test(String(build));
+
+// A stored or detected llama.cpp version, for display. The header of a format v2 file made
+// before llama.cpp 1.0.0 holds a number, newer ones hold '1.0.0 (build 12359)' or '1.0.0'.
+export const describeBuild = build => isBuildNumber(build) ? `build ${build}` : String(build);
+
+// Whether two stored builds name the same llama.cpp. A bare version equals the same version
+// with a build number, because a file name has no build number.
+export const sameBuild = (a, b) => {
+    const key = build => isBuildNumber(build) ? `build ${build}` : String(build).split(' ')[0];
+    return key(a) === key(b);
 };
 
 // What the install button runs, per package manager.
