@@ -1,6 +1,6 @@
-:root { color-scheme: light dark; --bg: #f6f7f9; --card: #fff; --line: #dfe2e8; --text: #1d2026; --muted: #6a7280; --accent: #3b6df0; --ok: #2f9e5b; --err: #d14343; }
+:root { color-scheme: light dark; --bg: #f6f7f9; --card: #fff; --line: #dfe2e8; --text: #1d2026; --muted: #6a7280; --accent: #3b6df0; --ok: #2f9e5b; --err: #d14343; --on-accent: #fff; }
 @media (prefers-color-scheme: dark) {
-  :root { --bg: #16181d; --card: #1e2128; --line: #2d323c; --text: #dde0e6; --muted: #8c94a3; --accent: #6b94ff; --ok: #4cc27f; --err: #ef7676; }
+  :root { --bg: #16181d; --card: #1e2128; --line: #2d323c; --text: #dde0e6; --muted: #8c94a3; --accent: #6b94ff; --ok: #4cc27f; --err: #ef7676; --on-accent: #10131a; }
 }
 * { box-sizing: border-box; margin: 0; }
 body { font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); padding: 20px 24px 28px; display: flex; flex-direction: column; gap: 14px; }
@@ -88,3 +88,37 @@ select {
 }
 select:hover { border-color: var(--accent); }
 select:focus-visible, input:focus-visible, textarea:focus-visible, button:focus-visible { outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent); outline-offset: 1px; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.dg { display: flex; flex-direction: column; gap: 8px; max-width: 880px; margin: 0 auto; }
+.dg-text { font: 14px/1.5 ui-monospace, Menlo, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; min-height: 3em; max-height: 6em; overflow: hidden; }
+.dg-text mark, .dg-binary mark { background: transparent; color: inherit; border-radius: 3px; }
+.dg-text mark.on { background: color-mix(in srgb, var(--accent) 30%, transparent); outline: 1px solid var(--accent); }
+.dg-binary { font: 13px/1.4 ui-monospace, Menlo, Consolas, monospace; color: var(--muted); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.dg-binary mark.on { color: var(--text); background: color-mix(in srgb, var(--ok) 35%, transparent); }
+.dg-pending { font-size: 11.5px; }
+.dg-svg { width: 100%; height: auto; display: block; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; font-family: ui-monospace, Menlo, Consolas, monospace; }
+.dg-track { fill: var(--line); }
+.dg-bar { fill: color-mix(in srgb, var(--accent) 38%, var(--card)); stroke: var(--card); stroke-width: 1; }
+.dg-bar.dg-alt { fill: color-mix(in srgb, var(--accent) 58%, var(--card)); }
+.dg-bar.dg-chosen { fill: var(--accent); stroke: var(--text); stroke-width: 1.5; }
+.dg-pin { fill: var(--accent); }
+.dg-link { fill: color-mix(in srgb, var(--accent) 16%, transparent); stroke: color-mix(in srgb, var(--accent) 50%, transparent); stroke-width: 1; }
+.dg-label { font-size: 11px; fill: var(--text); pointer-events: none; }
+.dg-label.dg-label-chosen { fill: var(--on-accent); font-weight: 700; }
+.dg-caption, .dg-tick { font-size: 11px; fill: var(--muted); }
+.dg-axis { stroke: var(--muted); stroke-width: 1.5; }
+.dg-range { fill: var(--ok); }
+.dg-stats { display: flex; flex-direction: column; gap: 2px; font-size: 12.5px; }
+.dg-line { font-weight: 600; }
+.dg-total { color: var(--muted); }
+.dg-ratio { height: 4px; background: var(--line); border-radius: 2px; overflow: hidden; }
+.dg-ratio i { display: block; height: 100%; width: 0; min-width: 2px; background: var(--ok); }
+.dg-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.dg-controls button { padding: 3px 10px; font-size: 12.5px; }
+.dg-controls label { font-size: 12.5px; color: var(--muted); display: inline-flex; align-items: center; gap: 6px; }
+.dg-controls select { flex: none; padding: 3px 28px 3px 8px; font-size: 12.5px; }
+.dg-live { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+.diagram summary { color: var(--text); font-weight: 600; }
+.diagram .dg-actions { display: flex; gap: 8px; margin: 8px 0; flex-wrap: wrap; }
+@media (prefers-reduced-motion: reduce) { .bar > i { animation: none; } }
+.adv input[type=checkbox] { justify-self: start; }
