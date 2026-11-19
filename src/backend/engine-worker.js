@@ -22,7 +22,7 @@ import { LlamaZip } from './vendor/llama-zip.js/js/llamazip.js';
 import { bytesToUtf8 } from './vendor/llama-zip.js/js/utf8.js';
 
 const FLUSH_MS = 100;
-const PROGRESS_MS = 250;
+const PROGRESS_MS = 2000;
 
 const textEncoder = new TextEncoder();
 

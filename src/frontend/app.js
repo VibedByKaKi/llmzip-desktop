@@ -426,7 +426,7 @@ const runningText = job => {
     return `${job.stage || 'Working'} · ${fmtTime(elapsed)}${progress}${eta}`;
 };
 
-// The backend reports progress about once a second, so the timer of the running job is updated here.
+// The backend reports progress about every 2 seconds, so the timer of the running job is updated here.
 // Only its text changes, because rebuilding the list would swallow clicks on the Cancel button.
 setInterval(() => {
     const job = runningJob();

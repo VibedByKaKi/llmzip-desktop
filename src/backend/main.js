@@ -716,7 +716,7 @@ const reportProgress = (app, job, extra = {}) => app.push('job', {
 const runWorker = (app, job, request) => new Promise((resolve, reject) => {
     const worker = new Worker(workerUrl());
     let info = null, progress = {}, settled = false, graceTimer = null, generationStart = 0;
-    const timer = setInterval(() => reportProgress(app, job, progress), 1000);
+    const timer = setInterval(() => reportProgress(app, job, progress), 2000);
     const finish = (fn, value) => {
         if (settled) return;
         settled = true;
