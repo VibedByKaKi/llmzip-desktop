@@ -337,6 +337,8 @@ const runJob = async job => {
         job.mode = job.trace ? 'trace' : info.llmz ? 'decompress' : 'compress';
         job.stage = job.mode === 'decompress' ? 'Decompressing' : job.mode === 'trace' ? 'Tracing' : 'Compressing';
         job.diagram = wantsDiagram(job);
+        // A collapsed panel stops text jobs from recording, so the card shows up collapsed to be reopened.
+        if (!job.diagram && job.text != null && job.mode === 'compress') $('diagramCard').hidden = false;
         if (job.mode === 'decompress') job.originalBytes = info.meta?.size;
         render();
         const common = { input: job.path, model: state.modelPath, lib: state.libPath, diagram: job.diagram };
