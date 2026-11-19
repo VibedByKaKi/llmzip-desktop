@@ -15,6 +15,11 @@ import {
     findLibllama, findTool, GUIDE, installCommand, installTool, IS_WIN, joinPath, LLAMA_PACKAGE, libraryBuild, toolEnv
 } from './libllama.js';
 
+const TEMP_DIR = joinPath(tjs.tmpDir, 'app.vibedbykaki.llmzip');
+
+// Compressed files from an earlier run are gone from the jobs list, so nothing can save them.
+void tjs.remove(TEMP_DIR).catch(() => {});
+
 export const api = {
     status: async ({ lib, model }) => {
         const found = await findLibllama(lib);
@@ -30,19 +35,20 @@ export const api = {
         return header ? { llmz: true, version: header.version, meta: header.meta } : { llmz: false };
     },
 
-    // Compresses a file (`input`) or typed text (`text`, which needs an `output`
-    // path). With `overwrite`, an existing `output` is replaced, not renamed.
+    // Compresses a file (`input`) or typed text (`text`). The result goes to the
+    // temporary folder unless `output` is given, and `save` copies it from there.
     // `diagram` asks for coder steps to be pushed to the page as 'steps' events.
-    compress: async ({ input, text, name, output, overwrite = false, model, lib, nCtx = 0, overlap = '0%', gpuLayers = 0, diagram = false }, app) => {
+    compress: async ({ input, text, name, output, model, lib, nCtx = 0, overlap = '0%', gpuLayers = 0, diagram = false }, app) => {
         const found = await requireLibllama(lib);
         if (!model || !await exists(model)) throw new Error('Choose a model (.gguf file) first.');
         const textBytes = typeof text === 'string' ? enc.encode(text) : null;
         if (textBytes && !textBytes.length) throw new Error('Type or paste some text first.');
-        if (textBytes && !output) throw new Error('Choose where to save the compressed text.');
         if (!textBytes && !input) throw new Error('No input.');
 
         return startJob(app, 'compress', async job => {
-            const out = overwrite && output ? output : await uniquePath(output || `${input}.llmz`);
+            const stem = textBytes ? baseName(name || 'text.txt') : baseName(input);
+            if (!output) await tjs.makeDir(TEMP_DIR, { recursive: true });
+            const out = await uniquePath(output || joinPath(TEMP_DIR, `${stem}.llmz`));
             const part = `${out}.part`;
             const bytes = textBytes || await tjs.readFile(input);
             const fingerprint = await modelFingerprint(model);
@@ -73,6 +79,16 @@ export const api = {
             const outputSize = await writeContainer(part, out, meta, payload);
             return { output: out, inputSize: bytes.length, outputSize, payloadSize: payload.length, tokens: info.tokens };
         });
+    },
+
+    // Copies a compressed file from the temporary folder to the place the user chose.
+    save: async ({ from, to }) => {
+        if (!from || !to) throw new Error('Nothing to save.');
+        if (dirName(from) !== TEMP_DIR || !await exists(from)) throw new Error('This compressed file is no longer available. Compress it again.');
+        const part = `${to}.part`;
+        await tjs.copyFile(from, part);
+        await tjs.rename(part, to);
+        return { output: to };
     },
 
     decompress: async ({ input, output, model, lib, force = false, diagram = false }, app) => {

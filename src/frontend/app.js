@@ -326,7 +326,7 @@ const runJob = async job => {
         if (job.mode === 'decompress') job.originalBytes = info.meta?.size;
         render();
         const common = { input: job.path, model: state.modelPath, lib: state.libPath, diagram: job.diagram };
-        const textArgs = job.text != null ? { text: job.text, output: job.output, overwrite: true, name: 'text.txt' } : {};
+        const textArgs = job.text != null ? { text: job.text, name: 'text.txt' } : {};
         if (job.mode === 'trace')
             job.result = await tiny.api.call('traceText', { text: job.text, model: state.modelPath, lib: state.libPath, ...advanced() });
         else if (job.mode === 'compress')
@@ -376,7 +376,8 @@ const jobHtml = job => {
         if (job.mode === 'compress') {
             stateText = `Done · ${fmtTime(result.seconds)}`;
             const ratio = result.inputSize ? (result.inputSize / result.outputSize).toFixed(2) : '–';
-            detail = `${fmtBytes(result.inputSize)} → ${fmtBytes(result.outputSize)} (ratio ${ratio}:1)\n${esc(result.output)}`;
+            const saved = job.savedTo ? `Saved to ${esc(job.savedTo)}` : 'Not saved yet';
+            detail = `${fmtBytes(result.inputSize)} → ${fmtBytes(result.outputSize)} (ratio ${ratio}:1)\n${saved}${job.saveError ? `\n<span class="err">${esc(job.saveError)}</span>` : ''}`;
         }
         else if (job.mode === 'decompress') {
             stateText = `Verified · ${fmtTime(result.seconds)}`;
@@ -386,7 +387,8 @@ const jobHtml = job => {
             stateText = `Done · ${fmtTime(result.seconds)}`;
             detail = `${result.tokens} tokens, nothing was saved`;
         }
-        if (job.mode !== 'trace') actions = '<button data-act="reveal">Show in folder</button>';
+        if (job.mode === 'compress') actions = `<button data-act="save" class="primary">Save…</button>${job.savedTo ? '<button data-act="reveal">Show in folder</button>' : ''}`;
+        if (job.mode === 'decompress') actions = '<button data-act="reveal">Show in folder</button>';
         if (job.steps?.length) actions += '<button data-act="diagram">Replay diagram</button>';
         else if (job.text != null && job.mode === 'compress') actions += '<button data-act="trace">Show diagram for this text</button>';
     }
@@ -416,7 +418,16 @@ $('jobs').addEventListener('click', async event => {
     const job = state.jobs.get(item.dataset.key);
     const act = button.dataset.act;
     if (act === 'cancel') await tiny.api.call('cancel');
-    if (act === 'reveal') await tiny.app.shell.reveal(job.result.output);
+    if (act === 'reveal') await tiny.app.shell.reveal(job.savedTo || job.result.output);
+    if (act === 'save') {
+        const stem = (job.label?.startsWith('Text') ? 'text' : base(job.path)).replace(/\.llmz$/i, '');
+        const to = await tiny.dialog.saveFile({ types: ['llmz'], name: stem });
+        if (!to) return;
+        const [{ value, reason }] = await Promise.allSettled([tiny.api.call('save', { from: job.result.output, to })]);
+        if (reason) job.saveError = errorText(reason);
+        else Object.assign(job, { savedTo: value.output, saveError: null });
+        render();
+    }
     if (act === 'diagram' && !runningJob()) showDiagram(job, { live: false });
     if (act === 'trace')
         // The live run was not recorded, so run the coder again on the text without saving.
@@ -426,6 +437,7 @@ $('jobs').addEventListener('click', async event => {
         });
     if (['retry', 'force'].includes(act)) {
         job.force = act === 'force';
+        Object.assign(job, { savedTo: null, saveError: null });
         job.status = 'queued';
         state.queue.push(job);
         render();
@@ -467,10 +479,8 @@ $('textIn').addEventListener('input', () => {
 const compressText = async () => {
     const text = $('textIn').value;
     if (!text) return;
-    const output = await tiny.dialog.saveFile({ types: ['llmz'], name: 'text' });
-    if (!output) return;
     enqueue({
-        key: Math.random().toString(36).slice(2), path: output, output, text,
+        key: Math.random().toString(36).slice(2), path: 'text.txt', text,
         label: `Text (${byteLength(text)} bytes)`, status: 'queued'
     });
 };
