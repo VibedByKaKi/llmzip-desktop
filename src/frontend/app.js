@@ -42,11 +42,15 @@ const loadSettings = async () => {
     $('diagramFiles').checked = !!adv.diagramFiles;
 };
 
+// What the backend needs to pick the right prebuilt libllama. The backend cannot tell the CPU.
+let systemCache = null;
+const systemInfo = async () => systemCache ??= { os: tiny.system.os(), arch: await tiny.system.architecture() };
+
 const refreshStatus = async () => {
     const [status, lib, installers] = await Promise.all([
         tiny.api.call('status', { lib: state.libPath, model: state.modelPath }),
         tiny.api.call('listModels'),
-        tiny.api.call('installers')
+        tiny.api.call('installers', await systemInfo())
     ]);
     state.lib = status.lib;
     state.model = status.model;
@@ -69,9 +73,13 @@ const renderSetup = () => {
         ? `winget downloads a prebuilt package (ggml.llamacpp), no compiler needed. It installs the latest release, which can be newer than llama.cpp ${TESTED_TEXT}, the version LLM Zip was tested with. A newer version is refused until LLM Zip is updated.`
         : `Homebrew normally downloads a prebuilt package (llama.cpp), so the install takes a minute or two. LLM Zip was tested with llama.cpp ${TESTED_TEXT}.`;
     $('dryNote').hidden = !dryRun;
+    const { prebuilt } = state.installers;
+    $('installPrebuilt').hidden = !prebuilt;
+    if (prebuilt)
+        $('setupHow').textContent += ` "From GitHub" skips the package manager and compiling: it downloads the llama.cpp ${prebuilt.tag} release (${fmtBytes(prebuilt.size)}), checks its SHA-256 and unpacks it into the app's data folder.`;
     const hint = $('noInstaller');
     hint.hidden = !!exe || !!dryRun;
-    hint.innerHTML = `${esc(name)} was not found. Install it, then choose "Check again". <a href="#" id="installGuide">How to install ${esc(name)}</a>`;
+    hint.innerHTML = `${esc(name)} was not found. ${prebuilt ? 'Use the prebuilt download, or install' : 'Install'} ${esc(name)}, then choose "Check again". <a href="#" id="installGuide">How to install ${esc(name)}</a>`;
     const link = $('installGuide');
     if (link) link.addEventListener('click', event => {
         event.preventDefault();
@@ -109,7 +117,10 @@ const updateControls = () => {
     const tool = button.dataset.tool;
     const name = tool === 'winget' ? 'winget' : 'Homebrew';
     button.disabled = busy || !(state.installers.exe || state.installers.dryRun);
-    button.textContent = state.installing ? `installing with ${name}…` : `using ${name}`;
+    button.textContent = state.installing === tool ? `installing with ${name}…` : `using ${name}`;
+    const prebuilt = $('installPrebuilt');
+    prebuilt.disabled = busy;
+    prebuilt.textContent = state.installing === 'prebuilt' ? 'downloading…' : 'from GitHub';
     $('cancelInstall').hidden = state.exclusive !== 'install';
     $('dlUrlGo').disabled = busy;
     for (const b of $('catalog').querySelectorAll('button[data-act=get]'))
@@ -158,16 +169,16 @@ tiny.api.on('install', ({ text }) => {
     pre.scrollTop = pre.scrollHeight;
 });
 
-const install = async () => {
-    const tool = $('installTool').dataset.tool;
-    if (!(state.installers.exe || state.installers.dryRun) || state.exclusive) return;
+const install = async (event, prebuilt = false) => {
+    const tool = prebuilt ? 'prebuilt' : $('installTool').dataset.tool;
+    if (state.exclusive || (!prebuilt && !(state.installers.exe || state.installers.dryRun))) return;
     state.exclusive = 'install';
     state.installing = tool;
     installLog = '';
     $('installErr').textContent = '';
     updateControls();
     try {
-        await tiny.api.call('installLibllama', { tool });
+        await (prebuilt ? tiny.api.call('installPrebuilt', await systemInfo()) : tiny.api.call('installLibllama', { tool }));
     }
     catch (error) {
         const message = errorText(error);
@@ -178,6 +189,7 @@ const install = async () => {
     await refreshStatus();
 };
 $('installTool').addEventListener('click', install);
+$('installPrebuilt').addEventListener('click', event => install(event, true));
 $('cancelInstall').addEventListener('click', () => tiny.api.call('cancel'));
 
 // ---- download models --------------------------------------------------------

@@ -3,11 +3,14 @@
 // The compressor binds libllama through FFI (vendor/llama-zip.js/js/llama.js),
 // so the app only needs to know which file to hand it. The search order is the
 // one of llama.js: the LLAMA_LIB variable, then the usual Homebrew and system
-// directories. A file the user chose in the app comes before all of them.
+// directories. A file the user chose in the app comes before all of them. The copy that the
+// app downloaded itself (prebuilt install) comes right before the system directories.
 // Windows gets one more place, where winget unpacks the package.
 //
 // The library files are libllama.so.1.0.0 (Linux), libllama.1.dylib (macOS) and
 // llama.dll (Windows). Only llama.cpp 1.0.0 is accepted, see src/shared/llama.js.
+import { PREBUILT_TAG } from '../shared/llama.js';
+
 export const LLAMA_PACKAGE = 'llama.cpp';
 export const WINGET_ID = 'ggml.llamacpp';
 
@@ -100,11 +103,16 @@ const wingetCandidates = async () => {
 // nothing gets installed. Any value except empty, `0` or `false` turns it on.
 const libraryHidden = () => !['', '0', 'false'].includes(String(tjs.env.LLMZIP_HIDE_LIBLLAMA ?? '').trim().toLowerCase());
 
-export const findLibllama = async chosen => {
+// The prebuilt install unpacks into <app data>/libllama/<tag>/ (see installPrebuilt in main.js).
+export const prebuiltDir = dataDir => joinPath(joinPath(dataDir, 'libllama'), PREBUILT_TAG);
+const prebuiltCandidates = dataDir => !dataDir ? [] : [IS_WIN ? 'llama.dll' : IS_MAC ? 'libllama.dylib' : 'libllama.so']
+    .map(name => joinPath(prebuiltDir(dataDir), name));
+
+export const findLibllama = async (chosen, dataDir) => {
     if (libraryHidden()) return null;
     if (chosen && await exists(chosen)) return { path: chosen, source: 'chosen' };
     if (tjs.env.LLAMA_LIB && await exists(tjs.env.LLAMA_LIB)) return { path: tjs.env.LLAMA_LIB, source: 'env' };
-    for (const path of [...defaultCandidates(), ...await wingetCandidates()])
+    for (const path of [...prebuiltCandidates(dataDir), ...defaultCandidates(), ...await wingetCandidates()])
         if (await exists(path)) return { path, source: 'search' };
     return null;
 };

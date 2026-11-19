@@ -53,13 +53,14 @@ The macOS builds are ad-hoc signed and not notarized, so Gatekeeper warns on fir
 ## Requirements
 
 - macOS 15 or later, Windows 10/11, or Linux with WebKitGTK 4.1
-- libllama from llama.cpp 1.0.0 (build 12359). llama-zip.js passes structs to the library by value with layouts written for that release, so it asks the library for its version when it loads it. An older library (it has no `llama_version()`) or a newer one fails with an error that says so. Install it with Homebrew (macOS and Linux) or winget (Windows), see below. No Python is needed.
+- libllama from llama.cpp 1.0.0 (build 12359). llama-zip.js passes structs to the library by value with layouts written for that release, so it asks the library for its version when it loads it. An older library (it has no `llama_version()`) or a newer one fails with an error that says so. Install it with Homebrew (macOS and Linux), winget (Windows) or the prebuilt download from the llama.cpp GitHub release (all platforms), see below. No Python is needed.
 - Disk space and RAM for a model (see below).
 
 ## Install libllama
 
-On first launch the app offers to install libllama for you. The install box reads `Install… | using Homebrew` on macOS and Linux and `Install… | using winget` on Windows. Press the button:
+On first launch the app offers to install libllama for you. The install box reads `Install… | using Homebrew | from GitHub` on macOS and Linux and `Install… | using winget | from GitHub` on Windows. Press a button:
 
+- Prebuilt download needs no package manager and no compiler. The app downloads the llama.cpp release that it was tested with (b12359, which is 1.0.0), checks the file against a SHA-256 stored in the app, and unpacks it into `libllama/b12359/` inside the app's data folder. Nothing is installed system-wide. It uses the CPU builds, and `tar` unpacks them (macOS, Linux and Windows 10 and later all ship one). The button shows for macOS arm64 and x86_64, Linux x86_64 and arm64, and Windows x86_64 and arm64. Use it when Homebrew has no bottle for your system, which makes `brew install llama.cpp` compile from source (this happened on Intel macOS 26). The macOS and Linux libraries find their `libggml` files next to themselves, so they load from any folder. The Windows DLLs rely on libuv loading `llama.dll` with its own folder on the search path. That was not run on Windows. Only the macOS x86_64 install was run, headless, against a local copy of the archive (the sandbox it ran in blocked the real download), and the window's new button was not clicked. To change the release, edit `PREBUILT` in `src/shared/llama.js` (the URL, size and SHA-256 of each asset).
 - Homebrew runs `brew install llama.cpp`.
 - winget runs `winget install --id ggml.llamacpp --exact --accept-package-agreements --accept-source-agreements`. The package id `ggml.llamacpp` comes from the llama.cpp repository's winget workflow and from winget package listings that a web search returned. It is unverified in practice, because winget was never run (there is no Windows machine here). It installs a Vulkan build of the latest release, which may be newer than the tested 1.0.0, and then the version check rejects it. The install box says so. Homebrew installs 1.0.0 at the time of writing. The library is `libllama.so.1.0.0` on Linux, `libllama.1.dylib` on macOS and `llama.dll` on Windows. Set `LLAMA_ZIP_ALLOW_UNTESTED=1` to use another version at your own risk, a changed struct layout can corrupt calls silently.
 
@@ -67,11 +68,12 @@ The installer output streams into the window, and Cancel stops it. "Check again"
 
 1. A file you chose with "Use an existing libllama…". The app remembers it.
 2. The `LLAMA_LIB` environment variable, as a full path.
-3. The Homebrew and system library folders (`/opt/homebrew/lib`, `/home/linuxbrew/.linuxbrew/lib`, `/usr/local/lib`, `/usr/lib` and the Debian multiarch folders). On Windows, the folder winget unpacks the package into, `%LOCALAPPDATA%\Microsoft\WinGet\Packages\ggml.llamacpp_*`. That Windows folder is not in llama-zip.js's own list, and it was not tested.
+3. The copy the prebuilt download unpacked into the app's data folder.
+4. The Homebrew and system library folders (`/opt/homebrew/lib`, `/home/linuxbrew/.linuxbrew/lib`, `/usr/local/lib`, `/usr/lib` and the Debian multiarch folders). On Windows, the folder winget unpacks the package into, `%LOCALAPPDATA%\Microsoft\WinGet\Packages\ggml.llamacpp_*`. That Windows folder is not in llama-zip.js's own list, and it was not tested.
 
 Set `LLMZIP_DRY_RUN_INSTALL=1` to try the install flow without installing anything. The app prints the command it would run, simulates a few lines of output over about two seconds, and changes nothing. The install button works in a dry run even when Homebrew or winget is missing, and Cancel works. Any value except empty, `0` or `false` turns it on. For example: `LLMZIP_DRY_RUN_INSTALL=1 tinyjs dev`. The install card only shows when libllama is not found. To see it on a machine that has libllama, also set `LLMZIP_HIDE_LIBLLAMA=1`, which makes the library lookup find nothing: `LLMZIP_HIDE_LIBLLAMA=1 LLMZIP_DRY_RUN_INSTALL=1 tinyjs dev`.
 
-If the package manager is not on your machine, the app says so and links to the [Homebrew](https://brew.sh/) or [winget](https://learn.microsoft.com/windows/package-manager/winget/) install guide. It does not install Homebrew or winget itself.
+If the package manager is not on your machine, the app says so, points to the prebuilt download, and links to the [Homebrew](https://brew.sh/) or [winget](https://learn.microsoft.com/windows/package-manager/winget/) install guide. It does not install Homebrew or winget itself.
 
 ## Get a model
 

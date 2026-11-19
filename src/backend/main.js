@@ -9,14 +9,14 @@
 // original size and SHA-256.
 import { createHash } from 'tjs:hashing';
 
-import { TESTED_TEXT } from '../shared/llama.js';
+import { PREBUILT, PREBUILT_TAG, TESTED_TEXT } from '../shared/llama.js';
 import { MODELS } from '../shared/models.js';
 
 import {
     decodeHeader, encodeHeader, FORMAT_VERSION, hashMatches, readPreamble, writePreamble
 } from './header.js';
 import {
-    describeBuild, findLibllama, findTool, GUIDE, installCommand, installTool, IS_WIN, joinPath, LLAMA_PACKAGE, libraryBuild, sameBuild, toolEnv
+    describeBuild, findLibllama, findTool, GUIDE, installCommand, installTool, IS_WIN, joinPath, LLAMA_PACKAGE, libraryBuild, prebuiltDir, sameBuild, toolEnv
 } from './libllama.js';
 import LZMA from './vendor/lzma-js/lzma-c.js';
 
@@ -30,8 +30,8 @@ const VIEW_LIMIT = 2 * 1024 * 1024;
 void tjs.remove(TEMP_DIR).catch(() => {});
 
 export const api = {
-    status: async ({ lib, model }) => {
-        const found = await findLibllama(lib);
+    status: async ({ lib, model }, app) => {
+        const found = await findLibllama(lib, (await app.paths()).data);
         return {
             platform: IS_WIN ? 'windows' : 'unix',
             lib: found,
@@ -48,7 +48,7 @@ export const api = {
     // temporary folder unless `output` is given, and `save` copies it from there.
     // `diagram` asks for coder steps to be pushed to the page as 'steps' events.
     compress: async ({ input, text, name, output, model, lib, nCtx = 0, overlap = '0%', gpuLayers = 0, diagram = false }, app) => {
-        const found = await requireLibllama(lib);
+        const found = await requireLibllama(lib, app);
         if (!model || !await exists(model)) throw new Error('Choose a model (.gguf file) first.');
         const textBytes = typeof text === 'string' ? enc.encode(text) : null;
         if (textBytes && !textBytes.length) throw new Error('Type or paste some text first.');
@@ -140,7 +140,7 @@ export const api = {
     },
 
     decompress: async ({ input, output, model, lib, force = false, diagram = false }, app) => {
-        const found = await requireLibllama(lib);
+        const found = await requireLibllama(lib, app);
         const header = await readHeader(input);
         if (!header) throw new Error('This is not an .llmz file.');
         const { version, meta, headerLen } = header;
@@ -204,7 +204,7 @@ export const api = {
     // Runs the compressor on text without saving anything, so the page can draw
     // the diagram for text whose live run it missed.
     traceText: async ({ text, model, lib, nCtx = 0, overlap = '0%', gpuLayers = 0 }, app) => {
-        const found = await requireLibllama(lib);
+        const found = await requireLibllama(lib, app);
         if (!model || !await exists(model)) throw new Error('Choose a model (.gguf file) first.');
         const bytes = enc.encode(String(text ?? ''));
         if (!bytes.length) throw new Error('There is no text to show.');
@@ -218,7 +218,9 @@ export const api = {
         });
     },
 
-    installers: async () => ({
+    // `os` and `arch` come from the page (tiny.system), the backend cannot tell the CPU.
+    installers: async ({ os, arch } = {}) => ({
+        prebuilt: PREBUILT[`${os}-${arch}`] ? { tag: PREBUILT_TAG, size: PREBUILT[`${os}-${arch}`].size } : null,
         tool: installTool(),
         exe: await findTool(installTool()),
         windows: IS_WIN,
@@ -274,8 +276,112 @@ export const api = {
             finally {
                 job.proc = null;
             }
-            const lib = await findLibllama(null);
+            const lib = await findLibllama(null, (await app.paths()).data);
             if (!lib) throw new Error(`${tool} finished, but libllama was not found. Restart the app, or use "Use an existing libllama".`);
+            return { lib: lib.path };
+        });
+    },
+
+    // Installs libllama without a package manager: downloads the prebuilt llama.cpp release
+    // that LLM Zip was tested with, checks its SHA-256 and unpacks it into the app's data
+    // folder. Output streams to the page as 'install' events, like installLibllama.
+    installPrebuilt: async ({ os, arch }, app) => {
+        const spec = PREBUILT[`${os}-${arch}`];
+        if (!spec) throw new Error(`There is no prebuilt libllama for ${os} ${arch}.`);
+        const dry = dryRunInstall();
+        const data = (await app.paths()).data;
+        const dir = prebuiltDir(data);
+        return startJob(app, 'install', async job => {
+            job.stage = 'installing';
+            const say = text => app.push('install', { text: `${text}\n` });
+            say(`Downloading ${spec.url}`);
+            if (dry) {
+                for (const line of [
+                    '[dry run] Downloading (simulated)',
+                    '[dry run] Checking SHA-256 (simulated)',
+                    `[dry run] Would unpack into ${dir}`,
+                    '[dry run] Nothing was installed. Unset LLMZIP_DRY_RUN_INSTALL to install for real.'
+                ]) {
+                    await sleep(700);
+                    if (job.cancelled) throw new Error('Cancelled');
+                    say(line);
+                }
+                return { dryRun: true, command: spec.url };
+            }
+            const root = joinPath(data, 'libllama');
+            await tjs.makeDir(root, { recursive: true });
+            const archive = joinPath(root, `${PREBUILT_TAG}${spec.url.endsWith('.zip') ? '.zip' : '.tar.gz'}.part`);
+            const staging = `${dir}.part`;
+            const cleanup = async () => {
+                for (const path of [archive, staging])
+                    await tjs.remove(path).catch(() => {});
+            };
+            await cleanup();
+            try {
+                const res = await fetch(spec.url, { redirect: 'follow' });
+                if (!res.ok) throw new Error(`Download failed: HTTP ${res.status}`);
+                const total = Number(res.headers.get('content-length')) || spec.size;
+                const reader = res.body.getReader();
+                job.cancelFn = () => void reader.cancel().catch(() => {});
+                const sha = createHash('sha256');
+                const file = await tjs.open(archive, 'w');
+                let received = 0, nextReport = 0.1;
+                try {
+                    for (;;) {
+                        const { value, done } = await reader.read();
+                        if (done) break;
+                        sha.update(value);
+                        await file.write(value, received);
+                        received += value.length;
+                        if (total && received / total >= nextReport) {
+                            say(`${Math.floor(received / total * 100)}% of ${(total / 1048576).toFixed(1)} MB`);
+                            nextReport = Math.floor(received / total * 10) / 10 + 0.1;
+                        }
+                    }
+                }
+                finally {
+                    await file.close().catch(() => {});
+                    job.cancelFn = null;
+                }
+                if (job.cancelled) throw new Error('Cancelled');
+                if (received !== spec.size) throw new Error(`Download ended early or has the wrong size (${received} of ${spec.size} bytes).`);
+                if (sha.digest() !== spec.sha256) throw new Error('The downloaded file does not match its published SHA-256. It was deleted.');
+                say('SHA-256 matches. Unpacking.');
+                await tjs.makeDir(staging, { recursive: true });
+                // bsdtar ships with macOS, Windows 10 and later, and most Linux systems, and it reads ZIPs too.
+                const tar = await findTool('tar') || 'tar';
+                const args = [tar, '-xf', archive, '-C', staging, ...spec.strip ? ['--strip-components=1'] : []];
+                say(`$ ${args.join(' ')}`);
+                const proc = tjs.spawn(args, { stdin: 'ignore', stdout: 'pipe', stderr: 'pipe', env: toolEnv() });
+                job.proc = proc;
+                let tail = '';
+                const pump = stream => {
+                    const decoder = new TextDecoder();
+                    return drain(stream, chunk => {
+                        tail = (tail + decoder.decode(chunk, { stream: true })).slice(-1000);
+                    });
+                };
+                try {
+                    await Promise.all([pump(proc.stdout), pump(proc.stderr)]);
+                    const status = await proc.wait();
+                    if (job.cancelled) throw new Error('Cancelled');
+                    if (status.exit_status !== 0 || status.term_signal)
+                        throw new Error(`tar failed (exit ${status.exit_status ?? status.term_signal})\n${tail.trim()}`);
+                }
+                finally {
+                    job.proc = null;
+                }
+                await tjs.remove(dir).catch(() => {});
+                await tjs.rename(staging, dir);
+            }
+            catch (error) {
+                await cleanup();
+                throw error;
+            }
+            await tjs.remove(archive).catch(() => {});
+            const lib = await findLibllama(null, data);
+            if (!lib) throw new Error(`The download unpacked into ${dir}, but libllama was not found there. Use "Use an existing libllama".`);
+            say(`Installed ${lib.path}`);
             return { lib: lib.path };
         });
     },
@@ -487,8 +593,8 @@ const writeContainer = async (part, out, meta, payload) => {
     }
 };
 
-const requireLibllama = async chosen => {
-    const found = await findLibllama(chosen);
+const requireLibllama = async (chosen, app) => {
+    const found = await findLibllama(chosen, (await app.paths()).data);
     if (!found) throw new Error('libllama was not found. See the setup instructions in the app.');
     return found;
 };
