@@ -36,6 +36,20 @@ The panel has Play and Pause, Step, Back, Restart and a speed from 0.25x to the 
 
 For text, the panel is open and recording by default. For files, tick "Diagram for files" under Advanced to record the first 200 tokens. A text job that ran without the panel can be drawn afterwards with "Show diagram for this text" on its row, which runs the coder again without saving anything. "Replay diagram" plays a recording from its first step, and the page keeps the recordings of the last four jobs (at most 1000 steps each). The panel announces a summary such as "token 12 of 40, 0.3 bits" to screen readers at most every 1.5 seconds, and it shows each step without easing when the system asks for reduced motion.
 
+## Download
+
+The latest build from `main` is on the [`latest` prerelease](https://github.com/VibedByKaKi/llmzip-desktop/releases/tag/latest):
+
+| Platform | Download |
+| --- | --- |
+| Windows (x86_64) | [llmzip-windows-x86_64.zip](https://github.com/VibedByKaKi/llmzip-desktop/releases/download/latest/llmzip-windows-x86_64.zip) |
+| macOS (Apple Silicon) | [llmzip-macos-arm64.dmg](https://github.com/VibedByKaKi/llmzip-desktop/releases/download/latest/llmzip-macos-arm64.dmg) |
+| macOS (Intel) | [llmzip-macos-x86_64.dmg](https://github.com/VibedByKaKi/llmzip-desktop/releases/download/latest/llmzip-macos-x86_64.dmg) |
+| Linux (x86_64) | [llmzip-linux-x86_64.zip](https://github.com/VibedByKaKi/llmzip-desktop/releases/download/latest/llmzip-linux-x86_64.zip) |
+| Linux (arm64) | [llmzip-linux-arm64.zip](https://github.com/VibedByKaKi/llmzip-desktop/releases/download/latest/llmzip-linux-arm64.zip) |
+
+The macOS builds are ad-hoc signed and not notarized, so Gatekeeper warns on first launch. You still need libllama and a model, see below.
+
 ## Requirements
 
 - macOS 15 or later, Windows 10/11, or Linux with WebKitGTK 4.1
