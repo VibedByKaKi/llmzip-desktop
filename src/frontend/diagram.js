@@ -35,7 +35,7 @@ const
     ease = k => k * k * (3 - 2 * k),
     esc = text => String(text).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', '\'': '&#39;' }[c])),
     // Whitespace made visible, as the video does, and a name for the end token.
-    visible = (piece, isEos) => isEos ? '[end]' : piece.replace(/ /g, '·').replace(/\n/g, '↵').replace(/\t/g, '⇥'),
+    visible = (piece, isEos) => isEos ? '[end]' : piece.replace(/ /g, '␣').replace(/\n/g, '↵').replace(/\t/g, '⇥'),
     fraction = hex => Number(BigInt(`0x${hex}`)) / TWO_POW_64,
     fmtBits = bits => bits < 10 ? bits.toFixed(2) : bits < 100 ? bits.toFixed(1) : bits.toFixed(0),
     fmtBytes = n => n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1048576).toFixed(1)} MB`,
