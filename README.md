@@ -2,7 +2,7 @@
 
 A desktop app that compresses files with a language model. Drop a file on the window and it becomes a `.llmz` file. Drop an `.llmz` file and it decompresses and checks the result against a stored SHA-256.
 
-The app is a small [tinyjs](https://github.com/tarwin/tinyjsapp) window (about 6 MB, no Electron). It does not contain a compressor. It drives [llama-zip](https://github.com/AlexBuz/llama-zip), which feeds the predictions of a llama.cpp model into an arithmetic coder. The 3Blue1Brown video [This algorithm changed how I think about compression](https://www.youtube.com/watch?v=qbsb9DpdZ6s) explains the technique. See "How it works" below.
+The app is a small [tinyjs](https://github.com/tarwin/tinyjsapp) window (about 6 MB, no Electron). The compressor is [llama-zip.js](https://github.com/VibedByKaKi/llama-zip.js), a JavaScript port of [llama-zip](https://github.com/AlexBuz/llama-zip) that calls the llama.cpp library (libllama) through FFI. The app runs it in a worker thread, so the window stays responsive. The 3Blue1Brown video [This algorithm changed how I think about compression](https://www.youtube.com/watch?v=qbsb9DpdZ6s) explains the technique. See "How it works" below.
 
 ## How it works
 
@@ -12,29 +12,47 @@ The decoder runs the same model on the same text so far and checks which region 
 
 How this project relates to the video:
 
-- `llama-zip` is the arithmetic coder, and the llama.cpp model is the predictor. Compression quality depends on the model, so a larger model compresses better and runs slower.
-- Decompression needs the exact same model, and any change in the predictions breaks the decoding. This is why the `.llmz` header stores a model fingerprint and why a different machine or build may fail to decompress a file.
+- `llama-zip.js` is the arithmetic coder, and the llama.cpp model is the predictor. Compression quality depends on the model, so a larger model compresses better and runs slower.
+- Decompression needs the exact same model, and any change in the predictions breaks the decoding. This is why the `.llmz` header stores a model fingerprint, and why it also stores the thread count, batch size and llama.cpp build the predictions came from. A different machine or build may fail to decompress a file.
 - The Hutter Prize scores the decoder size as well as the compressed data. This app does not, and the model file is the largest part of what you need to keep to decompress.
 - The video's closing argument is that compression and prediction are equivalent, which is why a better language model is a better compressor.
+
+### The live diagram
+
+The Diagram panel redraws the video's picture from your own model while a job runs. It follows the step stream of llama-zip.js, one step per coded token:
+
+- The text so far, with the current token highlighted.
+- The binary number that grows as the coder settles bits, with the newest bits highlighted.
+- A number line with the coder's interval. Its caption gives the real width, 2^-bits, because the interval of a whole message is far narrower than a drawing can show.
+- Stacked layers of probability bars labeled with tokens. Each layer is the model's top 16 candidates, laid out in token id order inside the chosen bar of the layer above. The chosen bar is highlighted, and the view zooms into it for the next layer.
+- The bits of the current token (`-log2(p)`) and the running total against the size of the original.
+
+The panel has Play and Pause, Step, Back, Restart and a speed from 0.25x to the fastest setting. The worker sends steps in batches about every 100 ms and the page queues them, so the animation can run behind the compression. "Skip to latest" jumps to the newest step. Compression does not wait for the drawing. Recording the steps costs about 20% of the speed (821 tokens took 18.0 s without and 21.4 s with), and the compressed bytes are identical.
+
+For text, the panel is open and recording by default. For files, tick "Diagram for files" under Advanced to record the first 200 tokens. A text job that ran without the panel can be drawn afterwards with "Show diagram for this text" on its row, which runs the coder again without saving anything. "Replay diagram" plays a recording from its first step, and the page keeps the recordings of the last four jobs (at most 1000 steps each). The panel announces a summary such as "token 12 of 40, 0.3 bits" to screen readers at most every 1.5 seconds, and it shows each step without easing when the system asks for reduced motion.
 
 ## Requirements
 
 - macOS 15 or later, Windows 10/11, or Linux with WebKitGTK 4.1
-- One of [uv](https://docs.astral.sh/uv/) or [pipx](https://pipx.pypa.io/) to install `llama-zip`, plus `git` and a C/C++ compiler. llama-zip pins `llama-cpp-python`, which compiles llama.cpp on install. Expect 5 to 20 minutes.
+- libllama from llama.cpp build b10180. llama-zip.js checks the struct layouts it binds when it loads the library, so a different build fails with an error. Install it with Homebrew (macOS and Linux) or winget (Windows), see below. No Python is needed.
 - Disk space and RAM for a model (see below).
 
-## Install llama-zip
+## Install libllama
 
-On first launch the app offers to install `llama-zip` for you. The install box reads `Install… | using uv | using pipx`. Press the button for the installer you want:
+On first launch the app offers to install libllama for you. The install box reads `Install… | using Homebrew` on macOS and Linux and `Install… | using winget` on Windows. Press the button:
 
-- **uv** runs `uv tool install --force git+https://github.com/alexbuz/llama-zip.git`
-- **pipx** runs `pipx install --force git+https://github.com/alexbuz/llama-zip.git`
+- Homebrew runs `brew install llama.cpp`.
+- winget runs `winget install --id ggml.llamacpp --exact --accept-package-agreements --accept-source-agreements`. The package id `ggml.llamacpp` comes from the llama.cpp repository's winget workflow and from winget package listings that a web search returned. It is unverified in practice, because winget was never run (there is no Windows machine here). It installs a Vulkan build of the latest release, so its build number may not be b10180, which the library check would reject.
 
-The installer output streams into the window, and Cancel stops it. The app looks for `llama-zip` on your `PATH` and in `~/.local/bin`, `/opt/homebrew/bin` and `/usr/local/bin`. If you installed it somewhere else, choose "Use an existing llama-zip".
+The installer output streams into the window, and Cancel stops it. "Check again" looks for the library again. The app looks for libllama in this order, the same as llama-zip.js:
 
-Set `LLMZIP_DRY_RUN_INSTALL=1` to try the install flow without installing anything. The app prints the command it would run, simulates a few lines of output over about two seconds, and changes nothing. Both installer buttons work in a dry run, even when uv or pipx is missing, and Cancel works. Any value except empty, `0` or `false` turns it on. For example: `LLMZIP_DRY_RUN_INSTALL=1 tinyjs dev`.
+1. A file you chose with "Use an existing libllama…". The app remembers it.
+2. The `LLAMA_LIB` environment variable, as a full path.
+3. The Homebrew and system library folders (`/opt/homebrew/lib`, `/home/linuxbrew/.linuxbrew/lib`, `/usr/local/lib`, `/usr/lib` and the Debian multiarch folders). On Windows, the folder winget unpacks the package into, `%LOCALAPPDATA%\Microsoft\WinGet\Packages\ggml.llamacpp_*`. That Windows folder is not in llama-zip.js's own list, and it was not tested.
 
-If neither installer is on your machine, the app says so and links to the uv install guide. It does not install uv or pipx itself.
+Set `LLMZIP_DRY_RUN_INSTALL=1` to try the install flow without installing anything. The app prints the command it would run, simulates a few lines of output over about two seconds, and changes nothing. The install button works in a dry run even when Homebrew or winget is missing, and Cancel works. Any value except empty, `0` or `false` turns it on. For example: `LLMZIP_DRY_RUN_INSTALL=1 tinyjs dev`.
+
+If the package manager is not on your machine, the app says so and links to the [Homebrew](https://brew.sh/) or [winget](https://learn.microsoft.com/windows/package-manager/winget/) install guide. It does not install Homebrew or winget itself.
 
 ## Get a model
 
@@ -44,12 +62,12 @@ Open "Download…" next to the model picker. There are three ways to get a model
 - **A URL.** Paste any https link to a `.gguf` file. Hugging Face "blob" page links are rewritten to the file link. The app checks the `GGUF` magic bytes, so a link that returns a web page fails instead of saving the page.
 - **A file.** "Choose file…" picks a `.gguf` already on disk.
 
-Downloads go to `models/` inside the app's data folder. Only one download or install runs at a time, and compression jobs wait for it. Speed depends on size: SmolLM2 135M (Q8_0) compressed about 115 bytes per second on an Intel i7 laptop CPU, and 6000 bytes of English text shrank to 888 bytes. A larger model compresses better and runs slower.
+Downloads go to `models/` inside the app's data folder. Only one download, install or job runs at a time, and compression jobs wait for a download or install. Speed depends on size. SmolLM2 135M (Q8_0) codes about 45 tokens per second on the 16-core CPU this was measured on. 3000 bytes of English text (821 tokens) took 18 s, which is about 165 bytes per second, and became 417 bytes of coded data plus the header. A larger model compresses better and runs slower.
 
 ## Use
 
 1. Choose or download a model.
-2. On the File tab, drop one or more files on the window, or open the Text tab, type or paste text, and press "Compress text…" (Cmd or Ctrl+Enter also works). The app asks where to save the `.llmz` file. Text is encoded as UTF-8 and stored under the name `text.txt`. Jobs run one at a time.
+2. On the File tab, drop one or more files on the window, or open the Text tab, type or paste text, and press "Compress text…" (Cmd or Ctrl+Enter also works). The app asks where to save the `.llmz` file. Text is encoded as UTF-8 and stored under the name `text.txt`. Jobs run one at a time, and Cancel aborts the running job through an `AbortSignal` without writing an output file.
 3. Decompress with the same model file. The app compares a fingerprint of the model (size plus SHA-256 of its first and last megabyte) and refuses a different one unless you click "Try anyway".
 
 ## The .llmz format
@@ -57,30 +75,71 @@ Downloads go to `models/` inside the app's data folder. Only one download or ins
 | Bytes | Content |
 | --- | --- |
 | 4 | Magic `LLMZ` |
-| 1 | Format version (1) |
+| 1 | Format version (2) |
 | 4 | Length N of the header, unsigned little-endian |
 | N | Header, UTF-8 JSON |
-| rest | Raw `llama-zip` output |
+| rest | Output of the llama-zip.js coder |
 
-The header holds the original file name and size, its SHA-256, the model fingerprint, and the context length, window overlap and GPU layer count used to compress. The header adds about 250 bytes, so tiny files come out larger than they went in.
+The header holds:
+
+- `engine`, which is `llama-zip.js`.
+- The original file name and size and its SHA-256.
+- `tokens`, the number of coded tokens including the end token.
+- The model fingerprint (size plus SHA-256 of its first and last megabyte).
+- `params`, the context length and window overlap as entered, plus the values the decoder needs: `nCtxUsed`, `overlapTokens`, `nThreads` (4) and `nBatch` (512) and the GPU layer count.
+- `llama`, the llama.cpp build number read from the library file name, and the CPU features that `llama_print_system_info` reports. Either is `null` when the app could not read it.
+
+The header is about 450 bytes with the CPU feature string, so tiny files come out larger than they went in.
+
+Decompression uses the stored values, checks the model fingerprint, and checks the length and SHA-256 of the result. The output file is written only when both match.
+
+Version 1 files came from the Python `llama-zip` that earlier versions of this app ran. The coder in llama-zip.js is not interchangeable with the Python one, so this version refuses a version 1 file with a message and does not try to decode it. The data after the version 1 header is plain `llama-zip` output, so the Python tool can still decode it.
 
 ## Limits
 
-- **Speed.** Expect a few kilobytes per minute on a CPU, and less with a larger model. Compress files that are worth the wait.
-- **Portability.** llama.cpp does not promise identical output across hardware, builds or GPU settings. A file may only decompress on the machine that made it. The checksum turns a silent failure into an error, and the app deletes the bad output.
-- **GPU.** GPU layers default to 0. On the Intel Mac this was tested on, offloading all layers made llama-zip emit NaN probabilities and exit with status 0. The app detects the Python traceback and reports the job as failed.
-- **Binary files.** llama-zip handles any bytes, but a language model predicts text well and other data poorly.
+- **Speed.** About 45 tokens per second with SmolLM2 135M, which is roughly 165 bytes per second of English. A larger model is slower. The JavaScript port is slower than the Python tool (about 100 tokens per second on the same model), because the softmax over the vocabulary runs in txiki.js's interpreter. Compress files that are worth the wait. The whole input and output are held in memory.
+- **Determinism.** llama.cpp does not promise identical output across hardware or builds. The logits are bit-identical only for the same thread count, batch size and chunking, so the header stores `nThreads` and `nBatch` and decompression reuses them. A different CPU, a different llama.cpp build, or a GPU can still change the results. The checksum turns a silent failure into an error, the app deletes the bad output, and the error shows the stored and current build and CPU features when they differ.
+- **Old files.** Version 1 files cannot be opened (see the format section).
+- **GPU.** GPU layers default to 0. Earlier versions saw NaN probabilities from GPU offload on one Intel Mac. With 0 layers the app keeps every operation on the CPU.
+- **Binary files.** Any bytes are accepted, but a language model predicts text well and other data poorly. Some tokenizers cannot round trip a few byte values. SmolLM2 135M drops 0x04, 0x06, 0x13, 0x14, 0x16 and 0x1d, and a file that contains them fails the checksum on decompression.
+- **Signed macOS builds.** tinyjs signs with the hardened runtime when you give it a signing identity, and it adds no `disable-library-validation` entitlement. macOS may then refuse to load the Homebrew libllama into the signed app. The default ad-hoc signature does not have this problem. This was not tested, because there is no Mac here.
+- **Window.** The window itself was only checked on Linux.
 
 ## Develop
 
 ```sh
+git clone --recurse-submodules https://github.com/VibedByKaKi/llmzip-desktop
+# or, in an existing clone
+git submodule update --init
+
 git clone https://github.com/tarwin/tinyjsapp && cd tinyjsapp && ./setup.sh
 cd /path/to/llmzip-desktop
 /path/to/tinyjsapp/tinyjs dev      # run with hot reload
 /path/to/tinyjsapp/tinyjs build    # dist/LLM Zip.app, dist/llmzip
 ```
 
-The backend is `src/backend/main.js` and the page is in `src/frontend/`. The backend can run without a window under `tjs run` for testing, since it only needs an object with a `push` method as `app`.
+The page is in `src/frontend/` (`diagram.js` draws the diagram), and the backend is `src/backend/main.js`. The model runs in `src/backend/engine-worker.js`, a txiki.js Worker, and `src/backend/libllama.js` finds libllama and the package manager.
+
+llama-zip.js is a git submodule at `src/backend/vendor/llama-zip.js`, pinned to a commit. It sits inside `src/backend/` because tinyjs ships only that folder with the backend. A submodule at the repository root would be missing from both `tinyjs dev` and `tinyjs build`. To move to a newer llama-zip.js:
+
+```sh
+git -C src/backend/vendor/llama-zip.js fetch && git -C src/backend/vendor/llama-zip.js checkout <commit>
+git add src/backend/vendor/llama-zip.js && git commit
+```
+
+`tinyjs build` on Linux compiles the backend with `tjs app compile`. The compiled binary carries the worker and the vendored modules, and Workers and `tjs:ffi` work inside it (checked with a headless run of the compiled backend). The macOS `.app` ships the same files as plain data next to a stock `tjs`.
+
+The backend can run without a window under `tjs run` for testing. It needs an object with `push` and `paths` methods as `app`, and `LLAMA_LIB` can point at libllama. For example:
+
+```js
+import { api } from './src/backend/main.js';
+const app = { push: (name, data) => {}, paths: async () => ({ data: '/tmp/llmz-data' }) };
+await api.compress({ input: 'file.txt', output: 'file.llmz', overwrite: true, model: '/path/model.gguf' }, app);
+```
+
+```sh
+tjs run headless.js
+```
 
 ## License
 
