@@ -76,23 +76,31 @@ Downloads go to `models/` inside the app's data folder. Only one download, insta
 | Bytes | Content |
 | --- | --- |
 | 4 | Magic `LLMZ` |
-| 1 | Format version (2) |
-| 4 | Length N of the header, unsigned little-endian |
-| N | Header, UTF-8 JSON |
+| 1 | Format version (3) |
+| 1 to 3 | Length N of the header, as a varint |
+| N | Header, binary |
 | rest | Output of the llama-zip.js coder |
 
-The header holds:
+A varint holds 7 bits per byte, least significant first, with the high bit set on every byte but the last. A string is a varint length followed by UTF-8 bytes. The header holds these fields in order:
 
-- `engine`, which is `llama-zip.js`.
-- The original file name and size and its SHA-256.
-- `tokens`, the number of coded tokens including the end token.
-- The model fingerprint (size plus SHA-256 of its first and last megabyte).
-- `params`, the context length and window overlap as entered, plus the values the decoder needs: `nCtxUsed`, `overlapTokens`, `nThreads` (4) and `nBatch` (512) and the GPU layer count.
-- `llama`, the llama.cpp version and build that the library reports (a string such as `1.0.0 (build 12359)`), and the CPU features that `llama_print_system_info` reports. The version falls back to the library file name, and either is `null` when the app could not read it. Files made before llama.cpp 1.0.0 hold the build number alone (for example `10180`).
+| Field | Size |
+| --- | --- |
+| Original size | varint |
+| Token count, including the end token | varint |
+| SHA-256 of the original, truncated | 8 bytes |
+| Original file name | string |
+| Model name | string |
+| Model size | varint |
+| Model fingerprint (SHA-256 of its first and last megabyte), truncated | 8 bytes |
+| `nCtx`, `nCtxUsed`, `overlapTokens` | 3 varints |
+| GPU layer count (zigzag, because it can be -1) | varint |
+| `nThreads` (4), `nBatch` (512) | 2 varints |
+| llama.cpp version and build the library reports, for example `1.0.0 (build 12359)` | string |
+| Digest of the CPU feature string, truncated | 4 bytes |
 
-The header is about 450 bytes with the CPU feature string, so tiny files come out larger than they went in.
+The header is about 90 bytes, so it is under a fifth of what it was in format version 2 (about 490 bytes of JSON). The hashes are truncated because they only have to catch a wrong model or a wrong decode, which gives garbage, and a 64-bit prefix lets a wrong result through about once in 2^64 times. The CPU feature string is kept as a 4-byte digest, so the app can tell that the CPU differs from the one that made the file but not how. Files in format version 2 (JSON header) still open.
 
-Decompression uses the stored values, checks the model fingerprint, and checks the length and SHA-256 of the result. The output file is written only when both match.
+Decompression uses the stored values, checks the model fingerprint, and checks the length and the truncated SHA-256 of the result. The output file is written only when both match.
 
 Version 1 files came from the Python `llama-zip` that earlier versions of this app ran. The coder in llama-zip.js is not interchangeable with the Python one, so this version refuses a version 1 file with a message and does not try to decode it. The data after the version 1 header is plain `llama-zip` output, so the Python tool can still decode it.
 

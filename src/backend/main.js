@@ -13,6 +13,9 @@ import { TESTED_TEXT } from '../shared/llama.js';
 import { MODELS } from '../shared/models.js';
 
 import {
+    decodeHeader, encodeHeader, FORMAT_VERSION, hashMatches, readPreamble, writePreamble
+} from './header.js';
+import {
     describeBuild, findLibllama, findTool, GUIDE, installCommand, installTool, IS_WIN, joinPath, LLAMA_PACKAGE, libraryBuild, sameBuild, toolEnv
 } from './libllama.js';
 import LZMA from './vendor/lzma-js/lzma-c.js';
@@ -62,21 +65,19 @@ export const api = {
                 mode: 'compress', lib: found.path, model, bytes, params, originalBytes: bytes.length, ...stepOptions(diagram, !!textBytes)
             });
             const meta = {
-                v: FORMAT_VERSION,
-                engine: ENGINE,
                 name: textBytes ? baseName(name || 'text.txt') : baseName(input),
                 size: bytes.length,
-                sha256: toBase64(sha256),
+                sha256,
                 tokens: info.tokens,
-                model: { ...fingerprint, sha256: toBase64(fingerprint.sha256) },
+                model: fingerprint,
                 params: {
-                    nCtx, overlap, gpuLayers,
+                    nCtx, gpuLayers,
                     nCtxUsed: info.nCtx,
                     overlapTokens: info.overlapTokens,
                     nThreads: params.nThreads,
                     nBatch: info.nBatch
                 },
-                llama: { build: info.llamaBuild, system: info.llamaSystem }
+                llama: { build: info.llamaBuild, systemDigest: createHash('sha256').update(info.llamaSystem || '').digest().slice(0, 8) }
             };
             const outputSize = await writeContainer(part, out, meta, payload);
             return { output: out, inputSize: bytes.length, outputSize, payloadSize: payload.length, tokens: info.tokens };
@@ -130,7 +131,7 @@ export const api = {
             throw error;
         }
         const fingerprint = await modelFingerprint(model);
-        if (!force && (fingerprint.sha256 !== toHex(meta.model.sha256) || fingerprint.size !== meta.model.size)) {
+        if (!force && (!hashMatches(fingerprint.sha256, toHex(meta.model.sha256)) || fingerprint.size !== meta.model.size)) {
             const error = new Error(
                 `The selected model (${fingerprint.name}) differs from the one used to compress this file (${meta.model.name}). ` +
                 'Decompressing with another model produces garbage or fails.'
@@ -159,7 +160,7 @@ export const api = {
                 throw new Error(`${error.message}\n${await differences(meta, found.path)}`.trim());
             }
             const bytes = result.bytes;
-            if (bytes.length !== meta.size || createHash('sha256').update(bytes).digest() !== toHex(meta.sha256)) {
+            if (bytes.length !== meta.size || !hashMatches(createHash('sha256').update(bytes).digest(), toHex(meta.sha256))) {
                 throw new Error(
                     'The decompressed data does not match the original checksum. ' +
                     'llama.cpp can give different predictions on different hardware, builds or thread counts, ' +
@@ -340,13 +341,10 @@ export const api = {
 export const init = () => {};
 
 const
-    MAGIC = new Uint8Array([0x4c, 0x4c, 0x4d, 0x5a]), // "LLMZ"
-    FORMAT_VERSION = 2,
     ENGINE = 'llama-zip.js',
-    // Hashes are stored in base64 without padding, which is 20 characters shorter than hex for a
-    // SHA-256. Files written earlier hold hex, so readers accept both through toHex.
-    toBase64 = hex => btoa(String.fromCharCode(...hex.match(/../g).map(byte => parseInt(byte, 16)))).replace(/=+$/, ''),
-    toHex = hash => /^[0-9a-f]+$/.test(hash) && [32, 64].includes(hash.length)
+    // Version 2 headers hold hex, or base64 without padding in the ones written for a short while.
+    // Version 3 headers are decoded to hex. toHex turns any of them into hex.
+    toHex = hash => /^[0-9a-f]+$/.test(hash) && [16, 32, 64].includes(hash.length)
         ? hash
         : [...atob(hash)].map(char => char.charCodeAt(0).toString(16).padStart(2, '0')).join(''),
     FINGERPRINT_SPAN = 1024 * 1024,
@@ -396,11 +394,6 @@ const
         }
         throw new Error('Could not find a free output file name');
     },
-    u32le = n => {
-        const bytes = new Uint8Array(4);
-        new DataView(bytes.buffer).setUint32(0, n, true);
-        return bytes;
-    },
     readExactly = async (file, length, offset) => {
         const buf = new Uint8Array(length);
         let got = 0;
@@ -425,11 +418,12 @@ const
 const readHeader = async path => {
     const file = await tjs.open(path, 'r');
     try {
-        const head = await readExactly(file, 9, 0);
-        if (head.length < 9 || MAGIC.some((byte, i) => head[i] !== byte)) return null;
-        const length = new DataView(head.buffer, head.byteOffset).getUint32(5, true);
-        const meta = JSON.parse(dec.decode(await readExactly(file, length, 9)));
-        return { version: head[4], meta, headerLen: 9 + length };
+        const preamble = readPreamble(await readExactly(file, 16, 0));
+        if (!preamble) return null;
+        const { version, length, start } = preamble;
+        const bytes = await readExactly(file, length, start);
+        if (bytes.length < length) return null;
+        return { version, meta: decodeHeader(version, bytes), headerLen: start + length };
     }
     catch {
         return null;
@@ -441,11 +435,11 @@ const readHeader = async path => {
 
 // magic, version, header length, header, then the coder's output
 const writeContainer = async (part, out, meta, payload) => {
-    const metaBytes = enc.encode(JSON.stringify(meta));
+    const metaBytes = encodeHeader(meta);
     const file = await tjs.open(part, 'w');
     let pos = 0;
     try {
-        for (const piece of [MAGIC, new Uint8Array([FORMAT_VERSION]), u32le(metaBytes.length), metaBytes, payload]) {
+        for (const piece of [writePreamble(metaBytes.length), metaBytes, payload]) {
             await file.write(piece, pos);
             pos += piece.length;
         }
@@ -503,6 +497,9 @@ const differences = async (meta, libPath, info) => {
             'Predictions can differ between llama.cpp versions, so the file may not decode here.');
     if (stored.system && info?.llamaSystem && stored.system !== info.llamaSystem)
         lines.push(`CPU features differ.\nThen: ${stored.system}\nNow: ${info.llamaSystem}`);
+    // Version 3 files keep only a digest of the CPU feature string, so they cannot say what differs.
+    else if (stored.systemDigest && info?.llamaSystem && stored.systemDigest !== createHash('sha256').update(info.llamaSystem).digest().slice(0, 8))
+        lines.push('The CPU features differ from those of the machine that made the file.');
     return lines.join('\n');
 };
 
