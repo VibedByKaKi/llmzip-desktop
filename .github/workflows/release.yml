@@ -69,7 +69,7 @@ jobs:
 
       - name: Package (Linux)
         if: runner.os == 'Linux'
-        run: tar -C dist -czf "llmzip-${{ matrix.name }}.tar.gz" .
+        run: (cd dist && zip -qr "../llmzip-${{ matrix.name }}.zip" .)
 
       - name: Package (macOS)
         if: runner.os == 'macOS'
@@ -88,7 +88,6 @@ jobs:
         with:
           name: llmzip-${{ matrix.name }}
           path: |
-            llmzip-${{ matrix.name }}.tar.gz
             llmzip-${{ matrix.name }}.dmg
             llmzip-${{ matrix.name }}.zip
           if-no-files-found: error
