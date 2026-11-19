@@ -97,7 +97,7 @@ const wingetCandidates = async () => {
     return found;
 };
 
-// Returns { path, source } or null. `chosen` is the file the user picked.
+// Returns { path, source } or null, with source 'chosen', 'env', 'prebuilt' (the app's own download) or 'search'. `chosen` is the file the user picked.
 // LLMZIP_HIDE_LIBLLAMA=1 makes the lookup find nothing, so the install card can
 // be tried on a machine that has libllama. Together with LLMZIP_DRY_RUN_INSTALL=1
 // nothing gets installed. Any value except empty, `0` or `false` turns it on.
@@ -149,7 +149,9 @@ export const findLibllama = async (chosen, dataDir) => {
     if (libraryHidden()) return null;
     if (chosen && await exists(chosen)) return { path: chosen, source: 'chosen' };
     if (tjs.env.LLAMA_LIB && await exists(tjs.env.LLAMA_LIB)) return { path: tjs.env.LLAMA_LIB, source: 'env' };
-    for (const path of [...await prebuiltCandidates(dataDir), ...defaultCandidates(), ...await wingetCandidates()])
+    for (const path of await prebuiltCandidates(dataDir))
+        if (await exists(path)) return { path, source: 'prebuilt' };
+    for (const path of [...defaultCandidates(), ...await wingetCandidates()])
         if (await exists(path)) return { path, source: 'search' };
     return null;
 };

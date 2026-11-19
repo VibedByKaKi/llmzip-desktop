@@ -66,7 +66,7 @@ export const api = {
 
             job.stage = 'Loading model';
             const { bytes: payload, info } = await runWorker(app, job, {
-                mode: 'compress', lib: found.path, model, bytes, params, originalBytes: bytes.length, ...stepOptions(diagram, !!textBytes)
+                mode: 'compress', lib: found.path, prebuilt: found.source === 'prebuilt', model, bytes, params, originalBytes: bytes.length, ...stepOptions(diagram, !!textBytes)
             });
             const meta = {
                 name: textBytes ? baseName(name || 'text.txt') : baseName(input),
@@ -177,7 +177,7 @@ export const api = {
             let result;
             try {
                 result = await runWorker(app, job, {
-                    mode: 'decompress', lib: found.path, model, bytes: payload, params, tokens: meta.tokens, originalBytes: meta.size,
+                    mode: 'decompress', lib: found.path, prebuilt: found.source === 'prebuilt', model, bytes: payload, params, tokens: meta.tokens, originalBytes: meta.size,
                     ...stepOptions(diagram, meta.size <= TEXT_LIMIT)
                 });
             }
@@ -212,7 +212,7 @@ export const api = {
             job.stage = 'Loading model';
             const params = { nCtx, overlap, gpuLayers, nThreads: DEFAULT_THREADS, nBatch: DEFAULT_BATCH };
             const { info } = await runWorker(app, job, {
-                mode: 'compress', lib: found.path, model, bytes, params, originalBytes: bytes.length, ...stepOptions(true, true)
+                mode: 'compress', lib: found.path, prebuilt: found.source === 'prebuilt', model, bytes, params, originalBytes: bytes.length, ...stepOptions(true, true)
             });
             return { tokens: info.tokens };
         });

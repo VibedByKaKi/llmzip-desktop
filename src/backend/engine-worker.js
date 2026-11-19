@@ -14,6 +14,8 @@
 //   { type: 'steps', steps }  coalesced coder steps for the diagram
 //   { type: 'result', bytes, tokens }
 //   { type: 'error', message, aborted }
+import { TESTED_VERSION } from '../shared/llama.js';
+
 import { libraryBuild } from './libllama.js';
 import { libraryInfo } from './vendor/llama-zip.js/js/llama.js';
 import { LlamaZip } from './vendor/llama-zip.js/js/llamazip.js';
@@ -44,8 +46,12 @@ const parseOverlap = (text, nCtx) => {
 // The version and build that libllama reports ('1.0.0 (build 12359)') and the CPU features
 // from llama_print_system_info. The file name is only a fallback for the version. Both are
 // optional, a failure gives null.
-const libraryDetails = async (zip, lib) => {
+const libraryDetails = async (zip, lib, prebuilt) => {
     let build = zip.model.llamaBuild || null;
+    // The release binaries (b12359) are the commit of the v1.0.0 tag, but upstream's CMake only drops
+    // the "-dev" suffix when it builds on that tag. Record the version Homebrew's build reports, so
+    // files stay interchangeable between the two.
+    if (prebuilt && build) build = build.replace(/^1\.0\.0-dev(?=\s|$)/, TESTED_VERSION);
     if (!build && lib)
         try {
             build = await libraryBuild(lib);
@@ -72,6 +78,10 @@ const pieceLength = step => step.pieceBytes ? step.pieceBytes.length : textEncod
 
 const run = async job => {
     if (job.lib) tjs.env.LLAMA_LIB = job.lib;
+    // Only for the copy this app downloaded and checked against a SHA-256 (see PREBUILT in
+    // src/shared/llama.js). Its llama_version() says "1.0.0-dev", which llama-zip.js does not list,
+    // but the layouts are those of the tested 1.0.0. A library the user chose is still checked.
+    if (job.prebuilt) tjs.env.LLAMA_ZIP_ALLOW_UNTESTED = '1';
     controller = new AbortController();
     const { mode, params } = job;
     let zip;
@@ -88,7 +98,7 @@ const run = async job => {
     }
     try {
         const overlap = params.overlapTokens ?? parseOverlap(params.overlap, zip.model.nCtx);
-        const lib = await libraryDetails(zip, job.lib);
+        const lib = await libraryDetails(zip, job.lib, job.prebuilt);
         let total = job.tokens ?? 0;
         if (mode === 'compress')
             total = zip.model.tokenize(bytesToUtf8(job.bytes), { addBos: false }).length + 1;
