@@ -329,7 +329,7 @@ const pump = async () => {
 
 const runJob = async job => {
     job.model = state.modelPath ? base(state.modelPath) : null;
-    Object.assign(job, { status: 'running', percent: null, error: null, tokens: 0, total: 0, bps: null, steps: [], diagram: false, lzma: null, startedAt: Date.now() });
+    Object.assign(job, { status: 'running', percent: null, error: null, tokens: 0, total: 0, bps: null, tokenRate: null, lastTick: null, etaAt: null, steps: [], diagram: false, lzma: null, startedAt: Date.now() });
     render();
     try {
         if (!state.lib) throw new Error('libllama is not installed. Use the install box above.');
@@ -378,6 +378,17 @@ tiny.api.on('job', event => {
     if (!job) return;
     if (event.stage) job.stage = event.stage;
     if (event.total) {
+        // Smooths the token rate, so that one slow or fast report does not make the ETA jump around.
+        const now = Date.now();
+        if (job.lastTick && event.tokens > job.tokens) {
+            const rate = (event.tokens - job.tokens) / ((now - job.lastTick) / 1000);
+            job.tokenRate = job.tokenRate ? job.tokenRate * 0.8 + rate * 0.2 : rate;
+        }
+        if (event.tokens !== job.tokens || !job.lastTick) job.lastTick = now;
+        if (job.tokenRate && event.tokens < event.total) {
+            job.eta = (event.total - event.tokens) / job.tokenRate;
+            job.etaAt = now;
+        }
         job.tokens = event.tokens;
         job.total = event.total;
         job.percent = Math.min(100, Math.floor(event.tokens / event.total * 100));
@@ -411,7 +422,7 @@ const lzmaLine = job => {
 const runningText = job => {
     const progress = job.total ? ` · ${job.tokens} of ${job.total} tokens${job.bps ? ` · ${fmtBytes(job.bps)}/s` : ''}` : '';
     const elapsed = (Date.now() - job.startedAt) / 1000;
-    const eta = job.total && job.tokens > 0 && job.tokens < job.total ? ` · ETA ${fmtTime(elapsed * (job.total - job.tokens) / job.tokens)}` : '';
+    const eta = job.etaAt && job.tokens < job.total ? ` · ETA ${fmtTime(Math.max(0, job.eta - (Date.now() - job.etaAt) / 1000))}` : '';
     return `${job.stage || 'Working'} · ${fmtTime(elapsed)}${progress}${eta}`;
 };
 
