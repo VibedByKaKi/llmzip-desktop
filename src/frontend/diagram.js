@@ -18,11 +18,11 @@ export const SPEEDS = [0.25, 0.5, 1, 2, 4, 8, 'max'];
 
 const
     WIDTH = 720,
-    HEIGHT = 300,
+    HEIGHT = 308,
     X0 = 20,
     BAR_WIDTH = 680,
-    AXIS_Y = 46,
-    ROW_TOP = 64,
+    AXIS_Y = 54,
+    ROW_TOP = 72,
     ROW_STEP = 36,
     ROW_HEIGHT = 30,
     SLOTS = 5,
