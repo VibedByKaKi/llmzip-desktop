@@ -344,7 +344,19 @@ const runJob = async job => {
         job.error = message;
         job.canForce = /differs from the one used/.test(message);
     }
-    if (state.diagramShown === job) diagram.finish();
+    if (job.target) {
+        // A diagram run belongs to the compression job it was started from, which then offers the replay.
+        job.target.tracing = false;
+        if (job.status === 'done') {
+            Object.assign(job.target, { steps: job.steps, total: job.total, originalBytes: job.originalBytes });
+            job.steps = null;
+            if (state.diagramShown === job) {
+                state.diagramShown = job.target;
+                $('diagramTitle').textContent = `Diagram: ${job.target.label || base(job.target.path)}`;
+            }
+        }
+    }
+    if (state.diagramShown === job || state.diagramShown === job.target) diagram.finish();
     trimRecordings();
     render();
 };
@@ -421,11 +433,12 @@ const jobHtml = job => {
         }
         else {
             stateText = `Done · ${fmtTime(result.seconds)}`;
-            detail = `${result.tokens} tokens, nothing was saved`;
+            detail = `${result.tokens} tokens, nothing was saved\nThe diagram is on the compression job.`;
         }
         if (job.mode === 'compress') actions = `<button data-act="save" class="primary">Save…</button><button data-act="decompress">Decompress</button>${job.savedTo ? '<button data-act="reveal">Show in folder</button>' : ''}`;
         if (job.mode === 'decompress') actions = '<button data-act="view" class="primary">View text</button><button data-act="reveal">Show in folder</button>';
         if (job.steps?.length) actions += '<button data-act="diagram">Replay diagram</button>';
+        else if (job.tracing) actions += '<button disabled>Preparing diagram…</button>';
         else if (job.text != null && job.mode === 'compress') actions += '<button data-act="trace">Show diagram for this text</button>';
     }
     if (['error', 'cancelled'].includes(job.status)) {
@@ -520,15 +533,19 @@ $('jobs').addEventListener('click', async event => {
         render();
     }
     if (act === 'diagram' && !runningJob()) showDiagram(job, { live: false });
-    if (act === 'trace')
+    if (act === 'trace') {
         // The live run was not recorded, so run the coder again on the text without saving.
+        // The recording goes to this job, which then offers the replay.
+        job.tracing = true;
         enqueue({
-            key: Math.random().toString(36).slice(2), path: job.path, text: job.text, trace: true,
+            key: Math.random().toString(36).slice(2), path: job.path, text: job.text, trace: true, target: job,
             label: `Diagram for ${job.label}`, status: 'queued'
         });
+    }
     if (['retry', 'force'].includes(act)) {
         job.force = act === 'force';
         Object.assign(job, { savedTo: null, saveError: null });
+        if (job.target) job.target.tracing = true;
         job.status = 'queued';
         state.queue.push(job);
         render();
