@@ -22,6 +22,10 @@ import LZMA from './vendor/lzma-js/lzma-c.js';
 
 const TEMP_DIR = joinPath(tjs.tmpDir, 'app.vibedbykaki.llmzip');
 
+// The files that decompress jobs wrote. readText only opens these.
+const DECOMPRESSED = new Set();
+const VIEW_LIMIT = 2 * 1024 * 1024;
+
 // Compressed files from an earlier run are gone from the jobs list, so nothing can save them.
 void tjs.remove(TEMP_DIR).catch(() => {});
 
@@ -93,6 +97,28 @@ export const api = {
         const start = Date.now();
         const size = await new Promise((resolve, reject) => LZMA.compress(bytes, level, (result, error) => error ? reject(error) : resolve(result.length)));
         return { size, level, seconds: (Date.now() - start) / 1000 };
+    },
+
+    // The text of a file a decompress job wrote, for the viewer. Reads at most VIEW_LIMIT bytes.
+    // Content that is not valid UTF-8 is reported as binary instead.
+    readText: async ({ path }) => {
+        if (!DECOMPRESSED.has(path)) throw new Error('Only the result of a decompression can be viewed.');
+        const file = await tjs.open(path, 'r');
+        try {
+            const size = (await file.stat()).size;
+            const bytes = await readExactly(file, Math.min(size, VIEW_LIMIT), 0);
+            try {
+                // `stream` lets the cut at the limit fall inside a character.
+                const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes, { stream: true });
+                return { text, size, truncated: size > bytes.length };
+            }
+            catch {
+                return { binary: true, size };
+            }
+        }
+        finally {
+            await file.close();
+        }
     },
 
     // Deletes compressed files from the temporary folder, for jobs removed from the history.
@@ -170,6 +196,7 @@ export const api = {
             }
             await tjs.writeFile(part, bytes);
             await tjs.rename(part, out);
+            DECOMPRESSED.add(out);
             return { output: out, inputSize: (await tjs.stat(input)).size, outputSize: bytes.length, verified: true, tokens: meta.tokens };
         });
     },

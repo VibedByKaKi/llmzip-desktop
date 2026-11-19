@@ -110,6 +110,18 @@
   <ul id="jobs"></ul>
 </section>
 
+<dialog id="viewer" aria-labelledby="viewerTitle">
+  <div class="viewerhead">
+    <h2 id="viewerTitle">Text</h2>
+    <div class="actions">
+      <button id="viewerCopy">Copy</button>
+      <button id="viewerClose">Close</button>
+    </div>
+  </div>
+  <div class="hint" id="viewerNote" hidden></div>
+  <pre id="viewerText"></pre>
+</dialog>
+
 <script type="module" src="app.js"></script>
 </body>
 </html>

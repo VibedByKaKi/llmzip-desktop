@@ -423,8 +423,8 @@ const jobHtml = job => {
             stateText = `Done · ${fmtTime(result.seconds)}`;
             detail = `${result.tokens} tokens, nothing was saved`;
         }
-        if (job.mode === 'compress') actions = `<button data-act="save" class="primary">Save…</button>${job.savedTo ? '<button data-act="reveal">Show in folder</button>' : ''}`;
-        if (job.mode === 'decompress') actions = '<button data-act="reveal">Show in folder</button>';
+        if (job.mode === 'compress') actions = `<button data-act="save" class="primary">Save…</button><button data-act="decompress">Decompress</button>${job.savedTo ? '<button data-act="reveal">Show in folder</button>' : ''}`;
+        if (job.mode === 'decompress') actions = '<button data-act="view" class="primary">View text</button><button data-act="reveal">Show in folder</button>';
         if (job.steps?.length) actions += '<button data-act="diagram">Replay diagram</button>';
         else if (job.text != null && job.mode === 'compress') actions += '<button data-act="trace">Show diagram for this text</button>';
     }
@@ -447,7 +447,7 @@ const jobHtml = job => {
 // deletes them from the temporary folder.
 const clearHistory = () => {
     const finished = [...state.jobs.values()].filter(job => ['done', 'error', 'cancelled'].includes(job.status));
-    const files = finished.filter(job => job.mode === 'compress' && job.result?.output).map(job => job.result.output);
+    const files = finished.filter(job => ['compress', 'decompress'].includes(job.mode) && job.result?.output).map(job => job.result.output);
     for (const job of finished) {
         state.jobs.delete(job.key);
         if (state.diagramShown === job) state.diagramShown = null;
@@ -456,6 +456,37 @@ const clearHistory = () => {
     render();
 };
 $('clearJobs').addEventListener('click', clearHistory);
+
+// The viewer is a modal <dialog> that shows the text a decompress job wrote.
+const viewText = async job => {
+    const viewer = $('viewer');
+    $('viewerTitle').textContent = base(job.result.output);
+    $('viewerText').textContent = 'Loading…';
+    $('viewerNote').hidden = true;
+    $('viewerCopy').disabled = true;
+    viewer.showModal();
+    const [{ value, reason }] = await Promise.allSettled([tiny.api.call('readText', { path: job.result.output })]);
+    $('viewerNote').hidden = !(reason || value.binary || value.truncated);
+    if (reason) {
+        $('viewerText').textContent = '';
+        $('viewerNote').textContent = errorText(reason);
+    }
+    else if (value.binary) {
+        $('viewerText').textContent = '';
+        $('viewerNote').textContent = `This file is not text (${fmtBytes(value.size)}). Use "Show in folder" to open it.`;
+    }
+    else {
+        $('viewerText').textContent = value.text;
+        $('viewerNote').textContent = `Showing the first ${fmtBytes(new TextEncoder().encode(value.text).length)} of ${fmtBytes(value.size)}.`;
+        $('viewerCopy').disabled = false;
+    }
+};
+$('viewerClose').addEventListener('click', () => $('viewer').close());
+$('viewerCopy').addEventListener('click', async () => {
+    await navigator.clipboard.writeText($('viewerText').textContent);
+    $('viewerCopy').textContent = 'Copied';
+    setTimeout(() => $('viewerCopy').textContent = 'Copy', 1200);
+});
 
 const render = () => {
     const jobs = [...state.jobs.values()].reverse();
@@ -472,6 +503,13 @@ $('jobs').addEventListener('click', async event => {
     const act = button.dataset.act;
     if (act === 'cancel') await tiny.api.call('cancel');
     if (act === 'reveal') await tiny.app.shell.reveal(job.savedTo || job.result.output);
+    if (act === 'decompress')
+        // The compressed file in the temporary folder is decompressed again, which also proves it decodes.
+        enqueue({
+            key: Math.random().toString(36).slice(2), path: job.result.output,
+            label: `Decompress ${job.label || base(job.path)}`, status: 'queued'
+        });
+    if (act === 'view') await viewText(job);
     if (act === 'save') {
         const stem = (job.label?.startsWith('Text') ? 'text' : base(job.path)).replace(/\.llmz$/i, '');
         const to = await tiny.dialog.saveFile({ types: ['llmz'], name: stem });
