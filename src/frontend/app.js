@@ -436,7 +436,8 @@ const jobHtml = job => {
         const result = job.result;
         cls = 'ok';
         if (job.mode === 'compress') {
-            stateText = `Done · ${fmtTime(result.seconds)}`;
+            const speed = result.seconds > 0 ? ` · ${fmtBytes(Math.round(result.inputSize / result.seconds))}/s` : '';
+            stateText = `Done · ${fmtTime(result.seconds)}${speed}`;
             const ratioOf = size => result.inputSize ? (result.inputSize / size).toFixed(2) : '–';
             const header = result.outputSize - result.payloadSize;
             const saved = job.savedTo ? `Saved to ${esc(job.savedTo)}` : 'Not saved yet';
