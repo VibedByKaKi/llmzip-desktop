@@ -316,6 +316,7 @@ const pump = async () => {
 };
 
 const runJob = async job => {
+    job.model = state.modelPath ? base(state.modelPath) : null;
     Object.assign(job, { status: 'running', elapsed: 0, percent: null, error: null, tokens: 0, total: 0, bps: null, steps: [], diagram: false, lzma: null });
     render();
     try {
@@ -420,6 +421,7 @@ const jobHtml = job => {
         if (job.canForce) actions = '<button data-act="force">Try anyway</button>';
         actions += '<button data-act="retry">Retry</button>';
     }
+    if (job.model) detail = `Model: ${esc(job.model)}${detail ? `\n${detail}` : ''}`;
     return `<li class="job" data-key="${esc(job.key)}">
     <div class="jname">${name}</div><div class="jstate ${cls}">${esc(stateText)}</div>
     ${bar}${detail ? `<div class="jdetail">${detail}</div>` : ''}
