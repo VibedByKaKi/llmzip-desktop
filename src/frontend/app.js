@@ -391,7 +391,7 @@ const lzmaLine = job => {
     const ratio = result.inputSize ? (result.inputSize / lzma.size).toFixed(2) : '–';
     const versus = size => size < lzma.size ? `${(lzma.size / size).toFixed(1)}x smaller` : `${(size / lzma.size).toFixed(1)}x larger`;
     return `\nLZMA level ${lzma.level}: ${fmtBytes(lzma.size)} (ratio ${ratio}:1, ${fmtTime(lzma.seconds)}). ` +
-        `The model's compressed data is ${versus(result.payloadSize)} than this, its whole file ${versus(result.outputSize)}. Neither counts the model itself.`;
+        `The model's compressed data is ${versus(result.payloadSize)} than this, its whole file ${versus(result.outputSize)}.`;
 };
 
 const runningText = job => {
