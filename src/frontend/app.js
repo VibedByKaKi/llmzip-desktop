@@ -11,7 +11,11 @@ const
     base = path => path.split(/[\\/]/).pop(),
     fmtBytes = n => n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(1)} KB`
                   : n < 1073741824 ? `${(n / 1048576).toFixed(1)} MB` : `${(n / 1073741824).toFixed(2)} GB`,
-    fmtTime = s => s < 60 ? `${s.toFixed(s < 10 ? 1 : 0)} s` : `${Math.floor(s / 60)} min ${Math.round(s % 60)} s`,
+    fmtTime = s => {
+        if (s < 59.5) return `${s.toFixed(s < 10 ? 1 : 0)} s`;
+        const whole = Math.round(s);
+        return `${Math.floor(whole / 60)} min ${whole % 60} s`;
+    },
     byteLength = text => new TextEncoder().encode(text).length,
     errorText = error => String(error && error.message ? error.message : error),
     // Jobs that keep their recorded steps for "Replay diagram".
@@ -399,12 +403,16 @@ const lzmaLine = job => {
     const ratio = result.inputSize ? (result.inputSize / lzma.size).toFixed(2) : '–';
     const versus = size => size < lzma.size ? `${(lzma.size / size).toFixed(1)}x smaller` : `${(size / lzma.size).toFixed(1)}x larger`;
     return `\nLZMA level ${lzma.level}: ${fmtBytes(lzma.size)} (ratio ${ratio}:1, ${fmtTime(lzma.seconds)}). ` +
-        `The model's compressed data is ${versus(result.payloadSize)} than this, its whole file ${versus(result.outputSize)}.`;
+        (versus(result.payloadSize) === versus(result.outputSize)
+            ? `The model's whole file including compressed data is ${versus(result.outputSize)} than this.`
+            : `The model's compressed data is ${versus(result.payloadSize)} than this, its whole file ${versus(result.outputSize)}.`);
 };
 
 const runningText = job => {
     const progress = job.total ? ` · ${job.tokens} of ${job.total} tokens${job.bps ? ` · ${fmtBytes(job.bps)}/s` : ''}` : '';
-    return `${job.stage || 'Working'} · ${fmtTime((Date.now() - job.startedAt) / 1000)}${progress}`;
+    const elapsed = (Date.now() - job.startedAt) / 1000;
+    const eta = job.total && job.tokens > 0 && job.tokens < job.total ? ` · ETA ${fmtTime(elapsed * (job.total - job.tokens) / job.tokens)}` : '';
+    return `${job.stage || 'Working'} · ${fmtTime(elapsed)}${progress}${eta}`;
 };
 
 // The backend reports progress about once a second, so the timer of the running job is updated here.
