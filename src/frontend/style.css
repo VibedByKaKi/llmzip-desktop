@@ -102,7 +102,8 @@ select:focus-visible, input:focus-visible, textarea:focus-visible, button:focus-
 .dg-bar.dg-alt { fill: color-mix(in srgb, var(--accent) 58%, var(--card)); }
 .dg-bar.dg-chosen { fill: var(--accent); stroke: var(--text); stroke-width: 1.5; }
 .dg-pin { fill: var(--accent); }
-.dg-link { fill: color-mix(in srgb, var(--accent) 16%, transparent); stroke: color-mix(in srgb, var(--accent) 50%, transparent); stroke-width: 1; }
+.dg-sliver { fill: var(--muted); opacity: .35; }
+.dg-guide { stroke: color-mix(in srgb, var(--text) 70%, transparent); stroke-width: 1; stroke-dasharray: 2 3; }
 .dg-label { font-size: 11px; fill: var(--text); pointer-events: none; }
 .dg-label.dg-label-chosen { fill: var(--on-accent); font-weight: 700; }
 .dg-caption, .dg-tick { font-size: 11px; fill: var(--muted); }

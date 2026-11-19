@@ -23,8 +23,9 @@ The Diagram panel redraws the video's picture from your own model while a job ru
 
 - The text so far, with the current token highlighted.
 - The binary number that grows as the coder settles bits, with the newest bits highlighted.
-- A number line with the coder's interval. Its caption gives the real width, 2^-bits, because the interval of a whole message is far narrower than a drawing can show.
-- Stacked layers of probability bars labeled with tokens. Each layer is the model's top 16 candidates, laid out in token id order inside the chosen bar of the layer above. The chosen bar is highlighted, and the view zooms into it for the next layer.
+- A number line with the coder's exact interval. Its tick labels gain decimal digits as the interval narrows, like 0.698251915 in the video. The page computes the interval with BigInt from every emitted bit plus the coder's 64-bit window and its held-back bits, so it stays exact however long the message is (a 1500 token test stream with 9000 bits takes about 7 ms per frame in txiki.js). The caption gives the width, 2^-bits.
+- Stacked layers of probability bars labeled with tokens. Each layer is the model's top 16 candidates, laid out in token id order inside the chosen bar of the layer above. The chosen bar is highlighted. The camera then zooms into the chosen bar until it fills the width, the older layers slide up and fade, and the next layer appears under them. Each layer is drawn at its own scale.
+- The tokens outside the top 16 are drawn as thin grey bars between the listed ones. The model gives only their total probability, so the bars are a texture and their places mean nothing. The legend and tooltips say "other tokens (not individually listed)".
 - The bits of the current token (`-log2(p)`) and the running total against the size of the original.
 
 The panel has Play and Pause, Step, Back, Restart and a speed from 0.25x to the fastest setting. The worker sends steps in batches about every 100 ms and the page queues them, so the animation can run behind the compression. "Skip to latest" jumps to the newest step. Compression does not wait for the drawing. Recording the steps costs about 20% of the speed (821 tokens took 18.0 s without and 21.4 s with), and the compressed bytes are identical.
