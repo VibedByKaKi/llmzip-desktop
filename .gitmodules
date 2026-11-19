@@ -1,0 +1,3 @@
+[submodule "src/backend/vendor/llama-zip.js"]
+	path = src/backend/vendor/llama-zip.js
+	url = https://github.com/VibedByKaKi/llama-zip.js.git
