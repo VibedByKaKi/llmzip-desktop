@@ -95,7 +95,13 @@ const wingetCandidates = async () => {
 };
 
 // Returns { path, source } or null. `chosen` is the file the user picked.
+// LLMZIP_HIDE_LIBLLAMA=1 makes the lookup find nothing, so the install card can
+// be tried on a machine that has libllama. Together with LLMZIP_DRY_RUN_INSTALL=1
+// nothing gets installed. Any value except empty, `0` or `false` turns it on.
+const libraryHidden = () => !['', '0', 'false'].includes(String(tjs.env.LLMZIP_HIDE_LIBLLAMA ?? '').trim().toLowerCase());
+
 export const findLibllama = async chosen => {
+    if (libraryHidden()) return null;
     if (chosen && await exists(chosen)) return { path: chosen, source: 'chosen' };
     if (tjs.env.LLAMA_LIB && await exists(tjs.env.LLAMA_LIB)) return { path: tjs.env.LLAMA_LIB, source: 'env' };
     for (const path of [...defaultCandidates(), ...await wingetCandidates()])
