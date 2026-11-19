@@ -329,7 +329,7 @@ const pump = async () => {
 
 const runJob = async job => {
     job.model = state.modelPath ? base(state.modelPath) : null;
-    Object.assign(job, { status: 'running', percent: null, error: null, tokens: 0, total: 0, bps: null, tokenRate: null, lastTick: null, etaAt: null, steps: [], diagram: false, lzma: null, startedAt: Date.now() });
+    Object.assign(job, { status: 'running', percent: null, error: null, tokens: 0, total: 0, bps: null, tokenRate: null, lastTick: null, etaAt: null, shownEta: null, steps: [], diagram: false, lzma: null, startedAt: Date.now() });
     render();
     try {
         if (!state.lib) throw new Error('libllama is not installed. Use the install box above.');
@@ -422,7 +422,13 @@ const lzmaLine = job => {
 const runningText = job => {
     const progress = job.total ? ` · ${job.tokens} of ${job.total} tokens${job.bps ? ` · ${fmtBytes(job.bps)}/s` : ''}` : '';
     const elapsed = (Date.now() - job.startedAt) / 1000;
-    const eta = job.etaAt && job.tokens < job.total ? ` · ETA ${fmtTime(Math.max(0, job.eta - (Date.now() - job.etaAt) / 1000))}` : '';
+    let eta = '';
+    if (job.etaAt && job.tokens < job.total) {
+        // The shown ETA only goes down. When a new estimate is higher, it stays put until the countdown catches up.
+        const estimate = Math.max(0, job.eta - (Date.now() - job.etaAt) / 1000);
+        job.shownEta = job.shownEta == null ? estimate : Math.min(job.shownEta, estimate);
+        eta = ` · ETA ${fmtTime(job.shownEta)}`;
+    }
     return `${job.stage || 'Working'} · ${fmtTime(elapsed)}${progress}${eta}`;
 };
 
