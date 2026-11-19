@@ -14,6 +14,7 @@ import { MODELS } from '../shared/models.js';
 import {
     findLibllama, findTool, GUIDE, installCommand, installTool, IS_WIN, joinPath, LLAMA_PACKAGE, libraryBuild, toolEnv
 } from './libllama.js';
+import LZMA from './vendor/lzma-js/lzma-c.js';
 
 const TEMP_DIR = joinPath(tjs.tmpDir, 'app.vibedbykaki.llmzip');
 
@@ -79,6 +80,17 @@ export const api = {
             const outputSize = await writeContainer(part, out, meta, payload);
             return { output: out, inputSize: bytes.length, outputSize, payloadSize: payload.length, tokens: info.tokens };
         });
+    },
+
+    // Compresses the same input with LZMA-JS, for comparison with the model.
+    // Returns the size of the raw .lzma stream. It runs on this thread, in
+    // chunks that yield to the event loop, so it does not use the worker.
+    lzma: async ({ input, text, level = 9 }) => {
+        const bytes = typeof text === 'string' ? enc.encode(text) : await tjs.readFile(input);
+        if (!bytes.length) throw new Error('There is nothing to compress.');
+        const start = Date.now();
+        const size = await new Promise((resolve, reject) => LZMA.compress(bytes, level, (result, error) => error ? reject(error) : resolve(result.length)));
+        return { size, level, seconds: (Date.now() - start) / 1000 };
     },
 
     // Copies a compressed file from the temporary folder to the place the user chose.

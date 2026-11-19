@@ -67,7 +67,7 @@ Downloads go to `models/` inside the app's data folder. Only one download, insta
 ## Use
 
 1. Choose or download a model.
-2. On the File tab, drop one or more files on the window, or open the Text tab, type or paste text, and press "Compress text…" (Cmd or Ctrl+Enter also works). The app writes the `.llmz` file to the system temporary folder (`app.vibedbykaki.llmzip` inside it) and deletes it on the next launch. Press "Save…" on the finished job to copy it where you want it. Text is encoded as UTF-8 and stored under the name `text.txt`. Jobs run one at a time, and Cancel aborts the running job through an `AbortSignal` without writing an output file.
+2. On the File tab, drop one or more files on the window, or open the Text tab, type or paste text, and press "Compress text…" (Cmd or Ctrl+Enter also works). The app writes the `.llmz` file to the system temporary folder (`app.vibedbykaki.llmzip` inside it) and deletes it on the next launch. Press "Save…" on the finished job to copy it where you want it. The finished job also shows the size [LZMA-JS](https://github.com/LZMA-JS/LZMA-JS) (level 9) gives for the same input, for comparison. Text is encoded as UTF-8 and stored under the name `text.txt`. Jobs run one at a time, and Cancel aborts the running job through an `AbortSignal` without writing an output file.
 3. Decompress with the same model file. The app compares a fingerprint of the model (size plus SHA-256 of its first and last megabyte) and refuses a different one unless you click "Try anyway".
 
 ## The .llmz format

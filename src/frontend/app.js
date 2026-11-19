@@ -315,7 +315,7 @@ const pump = async () => {
 };
 
 const runJob = async job => {
-    Object.assign(job, { status: 'running', elapsed: 0, percent: null, error: null, tokens: 0, total: 0, bps: null, steps: [], diagram: false });
+    Object.assign(job, { status: 'running', elapsed: 0, percent: null, error: null, tokens: 0, total: 0, bps: null, steps: [], diagram: false, lzma: null });
     render();
     try {
         if (!state.lib) throw new Error('libllama is not installed. Use the install box above.');
@@ -334,6 +334,7 @@ const runJob = async job => {
         else
             job.result = await tiny.api.call('decompress', { ...common, force: !!job.force });
         job.status = 'done';
+        if (job.mode === 'compress') compareLzma(job);
     }
     catch (error) {
         const message = errorText(error);
@@ -360,6 +361,25 @@ tiny.api.on('job', event => {
     render();
 });
 
+// Compresses the same input with LZMA in the background and shows it next to the model's result.
+const compareLzma = job => {
+    job.lzma = { pending: true };
+    tiny.api.call('lzma', { input: job.path, text: job.text })
+        .then(result => job.lzma = result)
+        .catch(error => job.lzma = { error: errorText(error) })
+        .finally(render);
+};
+
+const lzmaLine = job => {
+    const { result, lzma } = job;
+    if (!lzma) return '';
+    if (lzma.pending) return '\nLZMA: computing…';
+    if (lzma.error) return `\nLZMA: ${esc(lzma.error)}`;
+    const ratio = result.inputSize ? (result.inputSize / lzma.size).toFixed(2) : '–';
+    const versus = lzma.size > result.outputSize ? `${(lzma.size / result.outputSize).toFixed(1)}x larger than the model's file` : `${(result.outputSize / lzma.size).toFixed(1)}x smaller than the model's file`;
+    return `\nLZMA level ${lzma.level}: ${fmtBytes(lzma.size)} (ratio ${ratio}:1, ${fmtTime(lzma.seconds)}), ${versus}`;
+};
+
 const jobHtml = job => {
     const name = esc(job.label || base(job.path));
     let stateText = '', cls = '', detail = '', bar = '', actions = '';
@@ -377,7 +397,7 @@ const jobHtml = job => {
             stateText = `Done · ${fmtTime(result.seconds)}`;
             const ratio = result.inputSize ? (result.inputSize / result.outputSize).toFixed(2) : '–';
             const saved = job.savedTo ? `Saved to ${esc(job.savedTo)}` : 'Not saved yet';
-            detail = `${fmtBytes(result.inputSize)} → ${fmtBytes(result.outputSize)} (ratio ${ratio}:1)\n${saved}${job.saveError ? `\n<span class="err">${esc(job.saveError)}</span>` : ''}`;
+            detail = `${fmtBytes(result.inputSize)} → ${fmtBytes(result.outputSize)} (ratio ${ratio}:1)\n${saved}${job.saveError ? `\n<span class="err">${esc(job.saveError)}</span>` : ''}${lzmaLine(job)}`;
         }
         else if (job.mode === 'decompress') {
             stateText = `Verified · ${fmtTime(result.seconds)}`;
