@@ -35,7 +35,7 @@ For text, the panel is open and recording by default. For files, tick "Diagram f
 ## Requirements
 
 - macOS 15 or later, Windows 10/11, or Linux with WebKitGTK 4.1
-- libllama from llama.cpp build b10180. llama-zip.js checks the struct layouts it binds when it loads the library, so a different build fails with an error. Install it with Homebrew (macOS and Linux) or winget (Windows), see below. No Python is needed.
+- libllama from llama.cpp 1.0.0 (build 12359). llama-zip.js passes structs to the library by value with layouts written for that release, so it asks the library for its version when it loads it. An older library (it has no `llama_version()`) or a newer one fails with an error that says so. Install it with Homebrew (macOS and Linux) or winget (Windows), see below. No Python is needed.
 - Disk space and RAM for a model (see below).
 
 ## Install libllama
@@ -43,7 +43,7 @@ For text, the panel is open and recording by default. For files, tick "Diagram f
 On first launch the app offers to install libllama for you. The install box reads `Install… | using Homebrew` on macOS and Linux and `Install… | using winget` on Windows. Press the button:
 
 - Homebrew runs `brew install llama.cpp`.
-- winget runs `winget install --id ggml.llamacpp --exact --accept-package-agreements --accept-source-agreements`. The package id `ggml.llamacpp` comes from the llama.cpp repository's winget workflow and from winget package listings that a web search returned. It is unverified in practice, because winget was never run (there is no Windows machine here). It installs a Vulkan build of the latest release, so its build number may not be b10180, which the library check would reject.
+- winget runs `winget install --id ggml.llamacpp --exact --accept-package-agreements --accept-source-agreements`. The package id `ggml.llamacpp` comes from the llama.cpp repository's winget workflow and from winget package listings that a web search returned. It is unverified in practice, because winget was never run (there is no Windows machine here). It installs a Vulkan build of the latest release, which may be newer than the tested 1.0.0, and then the version check rejects it. The install box says so. Homebrew installs 1.0.0 at the time of writing. The library is `libllama.so.1.0.0` on Linux, `libllama.1.dylib` on macOS and `llama.dll` on Windows. Set `LLAMA_ZIP_ALLOW_UNTESTED=1` to use another version at your own risk, a changed struct layout can corrupt calls silently.
 
 The installer output streams into the window, and Cancel stops it. "Check again" looks for the library again. The app looks for libllama in this order, the same as llama-zip.js:
 
@@ -88,7 +88,7 @@ The header holds:
 - `tokens`, the number of coded tokens including the end token.
 - The model fingerprint (size plus SHA-256 of its first and last megabyte).
 - `params`, the context length and window overlap as entered, plus the values the decoder needs: `nCtxUsed`, `overlapTokens`, `nThreads` (4) and `nBatch` (512) and the GPU layer count.
-- `llama`, the llama.cpp build number read from the library file name, and the CPU features that `llama_print_system_info` reports. Either is `null` when the app could not read it.
+- `llama`, the llama.cpp version and build that the library reports (a string such as `1.0.0 (build 12359)`), and the CPU features that `llama_print_system_info` reports. The version falls back to the library file name, and either is `null` when the app could not read it. Files made before llama.cpp 1.0.0 hold the build number alone (for example `10180`).
 
 The header is about 450 bytes with the CPU feature string, so tiny files come out larger than they went in.
 
@@ -99,7 +99,8 @@ Version 1 files came from the Python `llama-zip` that earlier versions of this a
 ## Limits
 
 - **Speed.** About 45 tokens per second with SmolLM2 135M, which is roughly 165 bytes per second of English. A larger model is slower. The JavaScript port is slower than the Python tool (about 100 tokens per second on the same model), because the softmax over the vocabulary runs in txiki.js's interpreter. Compress files that are worth the wait. The whole input and output are held in memory.
-- **Determinism.** llama.cpp does not promise identical output across hardware or builds. The logits are bit-identical only for the same thread count, batch size and chunking, so the header stores `nThreads` and `nBatch` and decompression reuses them. A different CPU, a different llama.cpp build, or a GPU can still change the results. The checksum turns a silent failure into an error, the app deletes the bad output, and the error shows the stored and current build and CPU features when they differ.
+- **Determinism.** llama.cpp does not promise identical output across hardware or builds. The logits are bit-identical only for the same thread count, batch size and chunking, so the header stores `nThreads` and `nBatch` and decompression reuses them. A different CPU, a different llama.cpp build, or a GPU can still change the results. The checksum turns a silent failure into an error, the app deletes the bad output, and the error shows the stored and current llama.cpp version and CPU features when they differ. Do not assume that a file made with llama.cpp b10180 decodes on 1.0.0: one such file (37 tokens, SmolLM2-135M) failed to decode after the upgrade, so files made before 1.0.0 should be decompressed on the old build.
+- **Models newer than libllama.** A model with an architecture that the installed llama.cpp does not know fails to load. The app then says "This model needs a newer llama.cpp than the one installed (<version>). Update llama.cpp or choose another model." LFM3 (architecture `lfm3`) loads and round trips on 1.0.0.
 - **Old files.** Version 1 files cannot be opened (see the format section).
 - **GPU.** GPU layers default to 0. Earlier versions saw NaN probabilities from GPU offload on one Intel Mac. With 0 layers the app keeps every operation on the CPU.
 - **Binary files.** Any bytes are accepted, but a language model predicts text well and other data poorly. Some tokenizers cannot round trip a few byte values. SmolLM2 135M drops 0x04, 0x06, 0x13, 0x14, 0x16 and 0x1d, and a file that contains them fails the checksum on decompression.
