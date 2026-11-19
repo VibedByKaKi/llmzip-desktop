@@ -93,6 +93,14 @@ export const api = {
         return { size, level, seconds: (Date.now() - start) / 1000 };
     },
 
+    // Deletes compressed files from the temporary folder, for jobs removed from the history.
+    discard: async ({ files = [] }) => {
+        for (const file of files)
+            if (dirName(file) === TEMP_DIR)
+                await tjs.remove(file).catch(() => {});
+        return { removed: files.length };
+    },
+
     // Copies a compressed file from the temporary folder to the place the user chose.
     save: async ({ from, to }) => {
         if (!from || !to) throw new Error('Nothing to save.');

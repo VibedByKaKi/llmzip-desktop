@@ -425,9 +425,25 @@ const jobHtml = job => {
     ${actions ? `<div class="jactions">${actions}</div>` : ''}</li>`;
 };
 
+// Removes the jobs that are finished. Queued and running jobs stay. The
+// compressed files of the removed jobs can no longer be saved, so the backend
+// deletes them from the temporary folder.
+const clearHistory = () => {
+    const finished = [...state.jobs.values()].filter(job => ['done', 'error', 'cancelled'].includes(job.status));
+    const files = finished.filter(job => job.mode === 'compress' && job.result?.output).map(job => job.result.output);
+    for (const job of finished) {
+        state.jobs.delete(job.key);
+        if (state.diagramShown === job) state.diagramShown = null;
+    }
+    if (files.length) void tiny.api.call('discard', { files }).catch(() => {});
+    render();
+};
+$('clearJobs').addEventListener('click', clearHistory);
+
 const render = () => {
     const jobs = [...state.jobs.values()].reverse();
     $('jobsCard').hidden = jobs.length === 0;
+    $('clearJobs').disabled = !jobs.some(job => ['done', 'error', 'cancelled'].includes(job.status));
     $('jobs').innerHTML = jobs.map(jobHtml).join('');
 };
 
