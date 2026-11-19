@@ -377,8 +377,9 @@ const lzmaLine = job => {
     if (lzma.pending) return '\nLZMA: computing…';
     if (lzma.error) return `\nLZMA: ${esc(lzma.error)}`;
     const ratio = result.inputSize ? (result.inputSize / lzma.size).toFixed(2) : '–';
-    const versus = lzma.size > result.outputSize ? `${(lzma.size / result.outputSize).toFixed(1)}x larger than the model's file` : `${(result.outputSize / lzma.size).toFixed(1)}x smaller than the model's file`;
-    return `\nLZMA level ${lzma.level}: ${fmtBytes(lzma.size)} (ratio ${ratio}:1, ${fmtTime(lzma.seconds)}), ${versus}`;
+    const versus = size => size < lzma.size ? `${(lzma.size / size).toFixed(1)}x smaller` : `${(size / lzma.size).toFixed(1)}x larger`;
+    return `\nLZMA level ${lzma.level}: ${fmtBytes(lzma.size)} (ratio ${ratio}:1, ${fmtTime(lzma.seconds)}). ` +
+        `The model's compressed data is ${versus(result.payloadSize)} than this, its whole file ${versus(result.outputSize)}. Neither counts the model itself.`;
 };
 
 const runningText = job => {
@@ -408,9 +409,11 @@ const jobHtml = job => {
         cls = 'ok';
         if (job.mode === 'compress') {
             stateText = `Done · ${fmtTime(result.seconds)}`;
-            const ratio = result.inputSize ? (result.inputSize / result.outputSize).toFixed(2) : '–';
+            const ratioOf = size => result.inputSize ? (result.inputSize / size).toFixed(2) : '–';
+            const header = result.outputSize - result.payloadSize;
             const saved = job.savedTo ? `Saved to ${esc(job.savedTo)}` : 'Not saved yet';
-            detail = `${fmtBytes(result.inputSize)} → ${fmtBytes(result.outputSize)} (ratio ${ratio}:1)\n${saved}${job.saveError ? `\n<span class="err">${esc(job.saveError)}</span>` : ''}${lzmaLine(job)}`;
+            detail = `${fmtBytes(result.inputSize)} → ${fmtBytes(result.outputSize)} file (ratio ${ratioOf(result.outputSize)}:1)\n` +
+                `Compressed data ${fmtBytes(result.payloadSize)} (ratio ${ratioOf(result.payloadSize)}:1), header ${fmtBytes(header)}\n${saved}${job.saveError ? `\n<span class="err">${esc(job.saveError)}</span>` : ''}${lzmaLine(job)}`;
         }
         else if (job.mode === 'decompress') {
             stateText = `Verified · ${fmtTime(result.seconds)}`;

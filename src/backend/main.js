@@ -66,9 +66,9 @@ export const api = {
                 engine: ENGINE,
                 name: textBytes ? baseName(name || 'text.txt') : baseName(input),
                 size: bytes.length,
-                sha256,
+                sha256: toBase64(sha256),
                 tokens: info.tokens,
-                model: fingerprint,
+                model: { ...fingerprint, sha256: toBase64(fingerprint.sha256) },
                 params: {
                     nCtx, overlap, gpuLayers,
                     nCtxUsed: info.nCtx,
@@ -130,7 +130,7 @@ export const api = {
             throw error;
         }
         const fingerprint = await modelFingerprint(model);
-        if (!force && (fingerprint.sha256 !== meta.model.sha256 || fingerprint.size !== meta.model.size)) {
+        if (!force && (fingerprint.sha256 !== toHex(meta.model.sha256) || fingerprint.size !== meta.model.size)) {
             const error = new Error(
                 `The selected model (${fingerprint.name}) differs from the one used to compress this file (${meta.model.name}). ` +
                 'Decompressing with another model produces garbage or fails.'
@@ -159,7 +159,7 @@ export const api = {
                 throw new Error(`${error.message}\n${await differences(meta, found.path)}`.trim());
             }
             const bytes = result.bytes;
-            if (bytes.length !== meta.size || createHash('sha256').update(bytes).digest() !== meta.sha256) {
+            if (bytes.length !== meta.size || createHash('sha256').update(bytes).digest() !== toHex(meta.sha256)) {
                 throw new Error(
                     'The decompressed data does not match the original checksum. ' +
                     'llama.cpp can give different predictions on different hardware, builds or thread counts, ' +
@@ -343,6 +343,12 @@ const
     MAGIC = new Uint8Array([0x4c, 0x4c, 0x4d, 0x5a]), // "LLMZ"
     FORMAT_VERSION = 2,
     ENGINE = 'llama-zip.js',
+    // Hashes are stored in base64 without padding, which is 20 characters shorter than hex for a
+    // SHA-256. Files written earlier hold hex, so readers accept both through toHex.
+    toBase64 = hex => btoa(String.fromCharCode(...hex.match(/../g).map(byte => parseInt(byte, 16)))).replace(/=+$/, ''),
+    toHex = hash => /^[0-9a-f]+$/.test(hash) && [32, 64].includes(hash.length)
+        ? hash
+        : [...atob(hash)].map(char => char.charCodeAt(0).toString(16).padStart(2, '0')).join(''),
     FINGERPRINT_SPAN = 1024 * 1024,
     // Thread and batch size change llama.cpp's floating point results, so they are
     // fixed here and stored in the header. They match the defaults of llama-zip.js.
