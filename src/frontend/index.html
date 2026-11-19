@@ -13,21 +13,19 @@
 </header>
 
 <section class="card" id="setup" hidden>
-  <h2>Install llama-zip</h2>
-  <p>LLM Zip needs the <code>llama-zip</code> tool.<br>Installing it builds llama.cpp from source. That takes 5 to 20 minutes and needs <code>git</code> and a C/C++ compiler.</p>
+  <h2>Install libllama</h2>
+  <p>LLM Zip needs libllama, the library of llama.cpp.<br><span id="setupHow">The package manager downloads it.</span></p>
   <div class="installrow">
-    <div class="btngroup" role="group" aria-label="Install llama-zip">
+    <div class="btngroup" role="group" aria-label="Install libllama">
       <span class="grouplabel">Install…</span>
-      <button id="installUv" data-tool="uv">using uv</button>
-      <button id="installPipx" data-tool="pipx">using pipx</button>
+      <button id="installTool" data-tool="brew">using Homebrew</button>
     </div>
     <button id="cancelInstall" hidden>Cancel</button>
     <button id="recheck">Check again</button>
-    <button id="pickEngine">Use an existing llama-zip…</button>
+    <button id="pickLib">Use an existing libllama…</button>
   </div>
   <p class="hint" id="dryNote" hidden>Dry run is on (LLMZIP_DRY_RUN_INSTALL). Installs only print the command and change nothing.</p>
   <p class="hint" id="noInstaller" hidden></p>
-  <p class="hint" id="noGit" hidden>git was not found. The install needs it to fetch llama-zip.</p>
   <div class="err" id="installErr"></div>
   <pre id="installLog" hidden></pre>
 </section>
@@ -69,8 +67,10 @@
       <input id="overlap" value="0%">
       <label for="gpuLayers">GPU layers <span class="muted">(0 = CPU only, -1 = all)</span></label>
       <input id="gpuLayers" type="number" min="-1" value="0">
+      <label for="diagramFiles">Diagram for files <span class="muted">(first 200 tokens)</span></label>
+      <input id="diagramFiles" type="checkbox">
     </div>
-    <p class="hint">CPU only is the default because GPU offload fails on some machines and can give different predictions than the CPU. These settings are stored inside each compressed file, so decompression always uses the values the file was made with.</p>
+    <p class="hint">CPU only is the default because GPU offload fails on some machines and can give different predictions than the CPU. These settings are stored inside each compressed file, so decompression always uses the values the file was made with. The thread count (4) and batch size (512) are fixed and stored the same way. Recording the diagram costs about 20% of the speed, so it is on for text and optional for files.</p>
   </details>
 </section>
 
@@ -93,6 +93,13 @@
       <button class="primary" id="textGo" disabled>Compress text…</button>
     </div>
   </div>
+</section>
+
+<section class="card diagram" id="diagramCard" hidden>
+  <details id="diagramPanel" open>
+    <summary id="diagramTitle">Diagram</summary>
+    <div id="diagram"></div>
+  </details>
 </section>
 
 <section class="card" id="jobsCard" hidden>

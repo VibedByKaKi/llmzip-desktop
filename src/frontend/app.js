@@ -1,428 +1,514 @@
-const $ = (id) => document.getElementById(id);
-// Escape anything that goes into innerHTML. File names are untrusted and
-// this page holds an RPC channel to the backend.
-const esc = (s) => String(s).replace(/[&<>"']/g,
-  (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-
 import { MODELS } from '../shared/models.js';
 
+import { createDiagram } from './diagram.js';
+
+const
+    $ = id => document.getElementById(id),
+    // Escape anything that goes into innerHTML. File names are untrusted and
+    // this page holds an RPC channel to the backend.
+    esc = text => String(text).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', '\'': '&#39;' }[c])),
+    base = path => path.split(/[\\/]/).pop(),
+    fmtBytes = n => n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(1)} KB`
+                  : n < 1073741824 ? `${(n / 1048576).toFixed(1)} MB` : `${(n / 1073741824).toFixed(2)} GB`,
+    fmtTime = s => s < 60 ? `${s.toFixed(s < 10 ? 1 : 0)} s` : `${Math.floor(s / 60)} min ${Math.round(s % 60)} s`,
+    byteLength = text => new TextEncoder().encode(text).length,
+    errorText = error => String(error && error.message ? error.message : error),
+    // Jobs that keep their recorded steps for "Replay diagram".
+    KEPT_RECORDINGS = 4;
+
 const state = {
-  engine: null, enginePath: null, model: null, modelPath: null,
-  installers: { uv: null, pipx: null, git: true }, installing: null,
-  models: [], exclusive: null, // 'install' | 'download' while one runs
-  queue: [], busy: false, jobs: new Map(),
+    lib: null, libPath: null, model: null, modelPath: null,
+    installers: { tool: 'brew', exe: null }, installing: null,
+    models: [], exclusive: null, // 'install' | 'download' while one runs
+    queue: [], busy: false, jobs: new Map(),
+    diagramOpen: true, diagramShown: null
 };
 
-const base = (p) => p.split(/[\\/]/).pop();
-const fmtBytes = (n) => n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(1)} KB`
-  : n < 1073741824 ? `${(n / 1048576).toFixed(1)} MB` : `${(n / 1073741824).toFixed(2)} GB`;
-const fmtTime = (s) => s < 60 ? `${s.toFixed(s < 10 ? 1 : 0)} s` : `${Math.floor(s / 60)} min ${Math.round(s % 60)} s`;
+const diagram = createDiagram($('diagram'));
 
 // ---- setup / model ---------------------------------------------------------
 
-async function loadSettings() {
-  state.enginePath = (await tiny.store.get('enginePath')) || null;
-  state.modelPath = (await tiny.store.get('modelPath')) || null;
-  state.tab = (await tiny.store.get('tab')) === 'text' ? 'text' : 'file';
-  const adv = (await tiny.store.get('advanced')) || {};
-  if (adv.nCtx != null) $('nCtx').value = adv.nCtx;
-  if (adv.overlap) $('overlap').value = adv.overlap;
-  if (adv.gpuLayers != null) $('gpuLayers').value = adv.gpuLayers;
-}
+const loadSettings = async () => {
+    state.libPath = await tiny.store.get('libPath') || null;
+    state.modelPath = await tiny.store.get('modelPath') || null;
+    state.tab = await tiny.store.get('tab') === 'text' ? 'text' : 'file';
+    state.diagramOpen = await tiny.store.get('diagramOpen') !== false;
+    $('diagramPanel').open = state.diagramOpen;
+    const adv = await tiny.store.get('advanced') || {};
+    if (adv.nCtx != null) $('nCtx').value = adv.nCtx;
+    if (adv.overlap) $('overlap').value = adv.overlap;
+    if (adv.gpuLayers != null) $('gpuLayers').value = adv.gpuLayers;
+    $('diagramFiles').checked = !!adv.diagramFiles;
+};
 
-async function refreshStatus() {
-  const [st, lib, inst] = await Promise.all([
-    tiny.api.call('status', { engine: state.enginePath, model: state.modelPath }),
-    tiny.api.call('listModels'),
-    tiny.api.call('installers'),
-  ]);
-  state.engine = st.engine;
-  state.model = st.model;
-  state.models = lib.models;
-  state.installers = inst;
-  renderSetup();
-  renderModel();
-  renderCatalog();
-  updateControls();
-}
+const refreshStatus = async () => {
+    const [status, lib, installers] = await Promise.all([
+        tiny.api.call('status', { lib: state.libPath, model: state.modelPath }),
+        tiny.api.call('listModels'),
+        tiny.api.call('installers')
+    ]);
+    state.lib = status.lib;
+    state.model = status.model;
+    state.models = lib.models;
+    state.installers = installers;
+    renderSetup();
+    renderModel();
+    renderCatalog();
+    updateControls();
+};
 
-function renderSetup() {
-  $('setup').hidden = !!state.engine;
-  const { uv, pipx, git } = state.installers;
-  $('installUv').title = uv ? uv : 'uv was not found on this machine';
-  $('installPipx').title = pipx ? pipx : 'pipx was not found on this machine';
-  const hint = $('noInstaller');
-  const dry = !!state.installers.dryRun;
-  $('dryNote').hidden = !dry;
-  const missing = dry ? [] : [!uv && 'uv', !pipx && 'pipx'].filter(Boolean);
-  hint.hidden = missing.length === 0;
-  hint.innerHTML = !uv && !pipx
-    ? 'Neither uv nor pipx was found. Install one of them, then choose "Check again". <a href="#" id="uvDocs">How to install uv</a>'
-    : `${missing[0]} was not found, so its button is disabled.`;
-  const docs = $('uvDocs');
-  if (docs) docs.addEventListener('click', (e) => {
-    e.preventDefault();
-    tiny.app.shell.open('https://docs.astral.sh/uv/getting-started/installation/');
-  });
-  $('noGit').hidden = git !== false;
-}
+const renderSetup = () => {
+    $('setup').hidden = !!state.lib;
+    const { tool, exe, guide, dryRun } = state.installers;
+    const name = tool === 'winget' ? 'winget' : 'Homebrew';
+    const button = $('installTool');
+    button.dataset.tool = tool;
+    button.title = exe || `${name} was not found on this machine`;
+    $('setupHow').textContent = tool === 'winget'
+        ? 'winget downloads a prebuilt package (ggml.llamacpp), no compiler needed.'
+        : 'Homebrew normally downloads a prebuilt package (llama.cpp), so the install takes a minute or two.';
+    $('dryNote').hidden = !dryRun;
+    const hint = $('noInstaller');
+    hint.hidden = !!exe || !!dryRun;
+    hint.innerHTML = `${esc(name)} was not found. Install it, then choose "Check again". <a href="#" id="installGuide">How to install ${esc(name)}</a>`;
+    const link = $('installGuide');
+    if (link) link.addEventListener('click', event => {
+        event.preventDefault();
+        tiny.app.shell.open(guide);
+    });
+};
 
-function renderModel() {
-  const sel = $('modelSelect');
-  const options = state.models.map((m) => `<option value="${esc(m.path)}">${esc(m.name)} (${fmtBytes(m.size)})</option>`);
-  const external = state.modelPath && !state.models.some((m) => m.path === state.modelPath);
-  if (external) options.unshift(`<option value="${esc(state.modelPath)}">${esc(base(state.modelPath))} (chosen file)</option>`);
-  if (!state.modelPath) options.unshift('<option value="">No model selected</option>');
-  sel.innerHTML = options.join('');
-  sel.value = state.modelPath || '';
-  const info = $('modelInfo');
-  info.textContent = state.model
-    ? `${base(state.modelPath)}, ${fmtBytes(state.model.size)}. Decompression needs this exact file.`
-    : 'Download a model or choose a .gguf file. Decompression needs the exact same model file.';
-}
+const renderModel = () => {
+    const select = $('modelSelect');
+    const options = state.models.map(m => `<option value="${esc(m.path)}">${esc(m.name)} (${fmtBytes(m.size)})</option>`);
+    const external = state.modelPath && !state.models.some(m => m.path === state.modelPath);
+    if (external) options.unshift(`<option value="${esc(state.modelPath)}">${esc(base(state.modelPath))} (chosen file)</option>`);
+    if (!state.modelPath) options.unshift('<option value="">No model selected</option>');
+    select.innerHTML = options.join('');
+    select.value = state.modelPath || '';
+    $('modelInfo').textContent = state.model
+        ? `${base(state.modelPath)}, ${fmtBytes(state.model.size)}. Decompression needs this exact file.`
+        : 'Download a model or choose a .gguf file. Decompression needs the exact same model file.';
+};
 
-function renderCatalog() {
-  $('catalog').innerHTML = MODELS.map((m) => {
-    const have = state.models.find((x) => x.name === m.file && x.size === m.size);
-    const action = have
-      ? `<button data-act="use" data-id="${esc(m.id)}">Use</button><button data-act="del" data-id="${esc(m.id)}">Delete</button>`
-      : `<button data-act="get" data-id="${esc(m.id)}" ${state.exclusive ? 'disabled' : ''}>Download</button>`;
-    return `<li class="cat"><div><strong>${esc(m.name)}</strong> <span class="muted">${esc(m.quant)} · ${fmtBytes(m.size)}${have ? ' · downloaded' : ''}</span>
+const renderCatalog = () => {
+    $('catalog').innerHTML = MODELS.map(m => {
+        const have = state.models.find(x => x.name === m.file && x.size === m.size);
+        const action = have
+            ? `<button data-act="use" data-id="${esc(m.id)}">Use</button><button data-act="del" data-id="${esc(m.id)}">Delete</button>`
+            : `<button data-act="get" data-id="${esc(m.id)}" ${state.exclusive ? 'disabled' : ''}>Download</button>`;
+        return `<li class="cat"><div><strong>${esc(m.name)}</strong> <span class="muted">${esc(m.quant)} · ${fmtBytes(m.size)}${have ? ' · downloaded' : ''}</span>
       <div class="muted small">${esc(m.note)}</div></div><div class="actions">${action}</div></li>`;
-  }).join('');
-}
+    }).join('');
+};
 
-function updateControls() {
-  const busy = !!state.exclusive;
-  for (const b of document.querySelectorAll('#setup button[data-tool]')) {
-    const tool = b.dataset.tool;
-    b.disabled = busy || !(state.installers[tool] || state.installers.dryRun);
-    b.textContent = state.installing === tool ? `installing with ${tool}…` : `using ${tool}`;
-  }
-  $('cancelInstall').hidden = state.exclusive !== 'install';
-  $('dlUrlGo').disabled = busy;
-  for (const b of $('catalog').querySelectorAll('button[data-act=get]')) b.disabled = busy;
-}
+const updateControls = () => {
+    const busy = !!state.exclusive;
+    const button = $('installTool');
+    const tool = button.dataset.tool;
+    const name = tool === 'winget' ? 'winget' : 'Homebrew';
+    button.disabled = busy || !(state.installers.exe || state.installers.dryRun);
+    button.textContent = state.installing ? `installing with ${name}…` : `using ${name}`;
+    $('cancelInstall').hidden = state.exclusive !== 'install';
+    $('dlUrlGo').disabled = busy;
+    for (const b of $('catalog').querySelectorAll('button[data-act=get]'))
+        b.disabled = busy;
+};
 
-async function selectModel(path) {
-  state.modelPath = path || null;
-  await tiny.store.set('modelPath', state.modelPath);
-  await refreshStatus();
-}
+const selectModel = async path => {
+    state.modelPath = path || null;
+    await tiny.store.set('modelPath', state.modelPath);
+    await refreshStatus();
+};
 
-function advanced() {
-  return {
+const advanced = () => ({
     nCtx: Math.max(0, parseInt($('nCtx').value, 10) || 0),
     overlap: $('overlap').value.trim() || '0%',
-    gpuLayers: parseInt($('gpuLayers').value, 10),
-  };
-}
-
-for (const id of ['nCtx', 'overlap', 'gpuLayers']) {
-  $(id).addEventListener('change', () => tiny.store.set('advanced', {
-    nCtx: $('nCtx').value, overlap: $('overlap').value, gpuLayers: $('gpuLayers').value,
-  }));
-}
-
-$('modelSelect').addEventListener('change', (e) => selectModel(e.target.value));
-$('pickModel').addEventListener('click', async () => {
-  const p = await tiny.dialog.openFile({ types: ['gguf'] });
-  if (p) await selectModel(p);
+    gpuLayers: parseInt($('gpuLayers').value, 10)
 });
-$('pickEngine').addEventListener('click', async () => {
-  const p = await tiny.dialog.openFile();
-  if (!p) return;
-  state.enginePath = p;
-  await tiny.store.set('enginePath', p);
-  await refreshStatus();
+
+for (const id of ['nCtx', 'overlap', 'gpuLayers', 'diagramFiles'])
+    $(id).addEventListener('change', () => tiny.store.set('advanced', {
+        nCtx: $('nCtx').value, overlap: $('overlap').value, gpuLayers: $('gpuLayers').value, diagramFiles: $('diagramFiles').checked
+    }));
+
+$('modelSelect').addEventListener('change', event => selectModel(event.target.value));
+$('pickModel').addEventListener('click', async () => {
+    const path = await tiny.dialog.openFile({ types: ['gguf'] });
+    if (path) await selectModel(path);
+});
+$('pickLib').addEventListener('click', async () => {
+    const path = await tiny.dialog.openFile();
+    if (!path) return;
+    state.libPath = path;
+    await tiny.store.set('libPath', path);
+    await refreshStatus();
 });
 $('recheck').addEventListener('click', refreshStatus);
 
-// ---- install llama-zip ------------------------------------------------------
+// ---- install libllama --------------------------------------------------------
 
 let installLog = '';
 tiny.api.on('install', ({ text }) => {
-  installLog = (installLog + text).replace(/\r(?!\n)/g, '\n').slice(-6000);
-  const pre = $('installLog');
-  pre.hidden = false;
-  pre.textContent = installLog;
-  pre.scrollTop = pre.scrollHeight;
+    installLog = (installLog + text).replace(/\r(?!\n)/g, '\n').slice(-6000);
+    const pre = $('installLog');
+    pre.hidden = false;
+    pre.textContent = installLog;
+    pre.scrollTop = pre.scrollHeight;
 });
 
-async function install(tool) {
-  if (!(state.installers[tool] || state.installers.dryRun) || state.exclusive) return;
-  state.exclusive = 'install';
-  state.installing = tool;
-  installLog = '';
-  $('installErr').textContent = '';
-  updateControls();
-  try {
-    const r = await tiny.api.call('installEngine', { tool });
-    if (!r.dryRun) {
-      state.enginePath = r.engine;
-      await tiny.store.set('enginePath', r.engine);
+const install = async () => {
+    const tool = $('installTool').dataset.tool;
+    if (!(state.installers.exe || state.installers.dryRun) || state.exclusive) return;
+    state.exclusive = 'install';
+    state.installing = tool;
+    installLog = '';
+    $('installErr').textContent = '';
+    updateControls();
+    try {
+        await tiny.api.call('installLibllama', { tool });
     }
-  } catch (e) {
-    const msg = String(e && e.message ? e.message : e);
-    $('installErr').textContent = msg === 'Cancelled' ? 'Install cancelled.' : msg;
-  }
-  state.exclusive = null;
-  state.installing = null;
-  await refreshStatus();
-}
-for (const b of document.querySelectorAll('#setup button[data-tool]')) {
-  b.addEventListener('click', () => install(b.dataset.tool));
-}
+    catch (error) {
+        const message = errorText(error);
+        $('installErr').textContent = message === 'Cancelled' ? 'Install cancelled.' : message;
+    }
+    state.exclusive = null;
+    state.installing = null;
+    await refreshStatus();
+};
+$('installTool').addEventListener('click', install);
 $('cancelInstall').addEventListener('click', () => tiny.api.call('cancel'));
 
 // ---- download models --------------------------------------------------------
 
-$('toggleDl').addEventListener('click', () => { $('dlPanel').hidden = !$('dlPanel').hidden; });
+$('toggleDl').addEventListener('click', () => {
+    $('dlPanel').hidden = !$('dlPanel').hidden;
+});
 
 tiny.api.on('download', ({ received, total }) => {
-  const pct = total ? Math.min(100, (received / total) * 100) : null;
-  $('dlText').textContent = total
-    ? `${fmtBytes(received)} of ${fmtBytes(total)} · ${pct.toFixed(0)}%`
-    : fmtBytes(received);
-  const bar = $('dlBar');
-  bar.className = pct == null ? '' : 'det';
-  bar.style.width = pct == null ? '' : `${pct}%`;
+    const pct = total ? Math.min(100, received / total * 100) : null;
+    $('dlText').textContent = total
+        ? `${fmtBytes(received)} of ${fmtBytes(total)} · ${pct.toFixed(0)}%`
+        : fmtBytes(received);
+    const bar = $('dlBar');
+    bar.className = pct == null ? '' : 'det';
+    bar.style.width = pct == null ? '' : `${pct}%`;
 });
 
-async function download(params, label) {
-  if (state.exclusive) return;
-  state.exclusive = 'download';
-  $('dlErr').textContent = '';
-  $('dlProgress').hidden = false;
-  $('dlText').textContent = `Starting ${label}…`;
-  $('dlBar').style.width = '0';
-  updateControls();
-  try {
-    const r = await tiny.api.call('downloadModel', params);
-    state.modelPath = r.path;
-    await tiny.store.set('modelPath', r.path);
-    if (params.url) $('dlUrl').value = '';
-  } catch (e) {
-    const msg = String(e && e.message ? e.message : e);
-    $('dlErr').textContent = msg === 'Cancelled' ? 'Download cancelled.' : msg;
-  }
-  state.exclusive = null;
-  $('dlProgress').hidden = true;
-  await refreshStatus();
-}
+const download = async (params, label) => {
+    if (state.exclusive) return;
+    state.exclusive = 'download';
+    $('dlErr').textContent = '';
+    $('dlProgress').hidden = false;
+    $('dlText').textContent = `Starting ${label}…`;
+    $('dlBar').style.width = '0';
+    updateControls();
+    try {
+        const result = await tiny.api.call('downloadModel', params);
+        state.modelPath = result.path;
+        await tiny.store.set('modelPath', result.path);
+        if (params.url) $('dlUrl').value = '';
+    }
+    catch (error) {
+        const message = errorText(error);
+        $('dlErr').textContent = message === 'Cancelled' ? 'Download cancelled.' : message;
+    }
+    state.exclusive = null;
+    $('dlProgress').hidden = true;
+    await refreshStatus();
+};
 
-$('catalog').addEventListener('click', async (ev) => {
-  const btn = ev.target.closest('button[data-act]');
-  if (!btn) return;
-  const m = MODELS.find((x) => x.id === btn.dataset.id);
-  const have = state.models.find((x) => x.name === m.file);
-  if (btn.dataset.act === 'get') await download({ id: m.id }, m.name);
-  if (btn.dataset.act === 'use' && have) await selectModel(have.path);
-  if (btn.dataset.act === 'del' && have) {
-    const ok = await tiny.dialog.confirm(`Delete ${m.name}?`, {
-      detail: 'Files compressed with this model cannot be decompressed until you download it again.',
-    });
-    if (!ok) return;
-    await tiny.api.call('deleteModel', { path: have.path });
-    if (state.modelPath === have.path) await selectModel(null);
-    else await refreshStatus();
-  }
+$('catalog').addEventListener('click', async event => {
+    const button = event.target.closest('button[data-act]');
+    if (!button) return;
+    const model = MODELS.find(x => x.id === button.dataset.id);
+    const have = state.models.find(x => x.name === model.file);
+    if (button.dataset.act === 'get') await download({ id: model.id }, model.name);
+    if (button.dataset.act === 'use' && have) await selectModel(have.path);
+    if (button.dataset.act === 'del' && have) {
+        const ok = await tiny.dialog.confirm(`Delete ${model.name}?`, {
+            detail: 'Files compressed with this model cannot be decompressed until you download it again.'
+        });
+        if (!ok) return;
+        await tiny.api.call('deleteModel', { path: have.path });
+        if (state.modelPath === have.path) await selectModel(null);
+        else await refreshStatus();
+    }
 });
 $('dlUrlGo').addEventListener('click', () => {
-  const url = $('dlUrl').value.trim();
-  if (url) download({ url }, 'model');
+    const url = $('dlUrl').value.trim();
+    if (url) download({ url }, 'model');
 });
-$('dlUrl').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('dlUrlGo').click(); });
+$('dlUrl').addEventListener('keydown', event => {
+    if (event.key === 'Enter') $('dlUrlGo').click();
+});
 $('cancelDl').addEventListener('click', () => tiny.api.call('cancel'));
+
+// ---- the diagram -------------------------------------------------------------
+
+$('diagramPanel').addEventListener('toggle', () => {
+    state.diagramOpen = $('diagramPanel').open;
+    tiny.store.set('diagramOpen', state.diagramOpen);
+});
+
+// Steps are only recorded when the diagram was requested for the job, and
+// only the newest few jobs keep them.
+const wantsDiagram = job => job.text != null || job.trace ? state.diagramOpen : $('diagramFiles').checked;
+
+const trimRecordings = () => {
+    const kept = [...state.jobs.values()].filter(job => job.steps?.length).slice(-KEPT_RECORDINGS);
+    for (const job of state.jobs.values())
+        if (job.steps && !kept.includes(job)) job.steps = null;
+};
+
+const showDiagram = (job, { live, originalBytes }) => {
+    state.diagramShown = job;
+    $('diagramCard').hidden = false;
+    $('diagramPanel').open = true;
+    $('diagramTitle').textContent = `Diagram: ${job.label || base(job.path)}`;
+    if (live) diagram.reset({ originalBytes: originalBytes || 0 });
+    else diagram.load(job.steps, { total: job.total || job.steps.length, originalBytes: job.originalBytes || 0 });
+};
+
+const runningJob = () => [...state.jobs.values()].find(job => job.status === 'running');
+
+tiny.api.on('ready', ({ tokens, originalBytes }) => {
+    const job = runningJob();
+    if (!job) return;
+    job.total = tokens;
+    job.originalBytes = originalBytes;
+    if (job.diagram) {
+        showDiagram(job, { live: true, originalBytes });
+        diagram.setTotal(tokens);
+    }
+});
+
+tiny.api.on('steps', ({ steps }) => {
+    const job = runningJob();
+    if (!job || !job.diagram) return;
+    job.steps.push(...steps);
+    if (state.diagramShown === job) diagram.push(steps);
+});
 
 // ---- jobs ------------------------------------------------------------------
 
-function addFiles(paths) {
-  for (const path of paths) {
-    const job = { key: Math.random().toString(36).slice(2), path, status: 'queued', detail: '' };
+const enqueue = job => {
     state.jobs.set(job.key, job);
-    state.queue.push(job);
-  }
-  render();
-  pump();
-}
-
-async function pump() {
-  if (state.busy) return;
-  state.busy = true;
-  while (state.queue.length) {
-    while (state.exclusive) await new Promise((r) => setTimeout(r, 300));
-    const job = state.queue.shift();
-    await runJob(job);
-  }
-  state.busy = false;
-}
-
-async function runJob(job) {
-  job.status = 'running';
-  job.elapsed = 0;
-  job.percent = null;
-  job.error = null;
-  render();
-  try {
-    if (!state.engine) throw new Error('llama-zip is not installed. Use the install box above.');
-    const info = job.text != null ? { llmz: false } : await tiny.api.call('inspect', { path: job.path });
-    job.mode = info.llmz ? 'decompress' : 'compress';
-    job.stage = job.mode === 'compress' ? 'Compressing' : 'Decompressing';
-    render();
-    const common = { input: job.path, model: state.modelPath, engine: state.enginePath };
-    const textArgs = job.text != null ? { text: job.text, output: job.output, overwrite: true, name: 'text.txt' } : {};
-    job.result = job.mode === 'compress'
-      ? await tiny.api.call('compress', { ...common, ...textArgs, ...advanced() })
-      : await tiny.api.call('decompress', { ...common, force: !!job.force });
-    job.status = 'done';
-  } catch (e) {
-    const msg = String(e && e.message ? e.message : e);
-    job.status = msg === 'Cancelled' ? 'cancelled' : 'error';
-    job.error = msg;
-    job.canForce = /differs from the one used/.test(msg);
-  }
-  render();
-}
-
-tiny.api.on('job', (ev) => {
-  for (const job of state.jobs.values()) {
-    if (job.status !== 'running') continue;
-    job.elapsed = ev.elapsed;
-    if (ev.percent != null) job.percent = ev.percent;
-    render();
-  }
-});
-
-function jobHtml(j) {
-  const name = esc(j.label || base(j.path));
-  let stateText = '', cls = '', detail = '', bar = '', actions = '';
-  if (j.status === 'queued') stateText = 'Waiting';
-  if (j.status === 'running') {
-    stateText = `${j.stage || 'Working'} · ${fmtTime(j.elapsed || 0)}${j.percent != null ? ` · ${j.percent}%` : ''}`;
-    bar = `<div class="bar"><i class="${j.percent != null ? 'det' : ''}" style="${j.percent != null ? `width:${j.percent}%` : ''}"></i></div>`;
-    actions = `<button data-act="cancel">Cancel</button>`;
-  }
-  if (j.status === 'done') {
-    const r = j.result;
-    cls = 'ok';
-    if (j.mode === 'compress') {
-      stateText = `Done · ${fmtTime(r.seconds)}`;
-      const ratio = r.inputSize ? (r.inputSize / r.outputSize).toFixed(2) : '–';
-      detail = `${fmtBytes(r.inputSize)} → ${fmtBytes(r.outputSize)} (ratio ${ratio}:1)\n${esc(r.output)}`;
-    } else {
-      stateText = `Verified · ${fmtTime(r.seconds)}`;
-      detail = `${fmtBytes(r.inputSize)} → ${fmtBytes(r.outputSize)}, checksum matches\n${esc(r.output)}`;
-    }
-    actions = `<button data-act="reveal">Show in folder</button>`;
-  }
-  if (j.status === 'error' || j.status === 'cancelled') {
-    cls = j.status === 'error' ? 'err' : '';
-    stateText = j.status === 'error' ? 'Failed' : 'Cancelled';
-    detail = j.status === 'error' ? esc(j.error) : '';
-    if (j.canForce) actions = `<button data-act="force">Try anyway</button>`;
-    actions += `<button data-act="retry">Retry</button>`;
-  }
-  return `<li class="job" data-key="${esc(j.key)}">
-    <div class="jname">${name}</div><div class="jstate ${cls}">${esc(stateText)}</div>
-    ${bar}${detail ? `<div class="jdetail">${detail}</div>` : ''}
-    ${actions ? `<div class="jactions">${actions}</div>` : ''}</li>`;
-}
-
-function render() {
-  const jobs = [...state.jobs.values()].reverse();
-  $('jobsCard').hidden = jobs.length === 0;
-  $('jobs').innerHTML = jobs.map(jobHtml).join('');
-}
-
-$('jobs').addEventListener('click', async (ev) => {
-  const btn = ev.target.closest('button[data-act]');
-  const li = ev.target.closest('li.job');
-  if (!btn || !li) return;
-  const job = state.jobs.get(li.dataset.key);
-  const act = btn.dataset.act;
-  if (act === 'cancel') await tiny.api.call('cancel');
-  if (act === 'reveal') await tiny.app.shell.reveal(job.result.output);
-  if (act === 'retry' || act === 'force') {
-    job.force = act === 'force';
-    job.status = 'queued';
     state.queue.push(job);
     render();
     pump();
-  }
+};
+
+const addFiles = paths => {
+    for (const path of paths)
+        enqueue({ key: Math.random().toString(36).slice(2), path, status: 'queued' });
+};
+
+const pump = async () => {
+    if (state.busy) return;
+    state.busy = true;
+    while (state.queue.length) {
+        while (state.exclusive) await new Promise(resolve => setTimeout(resolve, 300));
+        await runJob(state.queue.shift());
+    }
+    state.busy = false;
+};
+
+const runJob = async job => {
+    Object.assign(job, { status: 'running', elapsed: 0, percent: null, error: null, tokens: 0, total: 0, bps: null, steps: [], diagram: false });
+    render();
+    try {
+        if (!state.lib) throw new Error('libllama is not installed. Use the install box above.');
+        const info = job.text != null ? { llmz: false } : await tiny.api.call('inspect', { path: job.path });
+        job.mode = job.trace ? 'trace' : info.llmz ? 'decompress' : 'compress';
+        job.stage = job.mode === 'decompress' ? 'Decompressing' : job.mode === 'trace' ? 'Tracing' : 'Compressing';
+        job.diagram = wantsDiagram(job);
+        if (job.mode === 'decompress') job.originalBytes = info.meta?.size;
+        render();
+        const common = { input: job.path, model: state.modelPath, lib: state.libPath, diagram: job.diagram };
+        const textArgs = job.text != null ? { text: job.text, output: job.output, overwrite: true, name: 'text.txt' } : {};
+        if (job.mode === 'trace')
+            job.result = await tiny.api.call('traceText', { text: job.text, model: state.modelPath, lib: state.libPath, ...advanced() });
+        else if (job.mode === 'compress')
+            job.result = await tiny.api.call('compress', { ...common, ...textArgs, ...advanced() });
+        else
+            job.result = await tiny.api.call('decompress', { ...common, force: !!job.force });
+        job.status = 'done';
+    }
+    catch (error) {
+        const message = errorText(error);
+        job.status = message === 'Cancelled' ? 'cancelled' : 'error';
+        job.error = message;
+        job.canForce = /differs from the one used/.test(message);
+    }
+    if (state.diagramShown === job) diagram.finish();
+    trimRecordings();
+    render();
+};
+
+tiny.api.on('job', event => {
+    const job = runningJob();
+    if (!job) return;
+    job.elapsed = event.elapsed;
+    if (event.stage) job.stage = event.stage;
+    if (event.total) {
+        job.tokens = event.tokens;
+        job.total = event.total;
+        job.percent = Math.min(100, Math.floor(event.tokens / event.total * 100));
+        job.bps = event.bps;
+    }
+    render();
+});
+
+const jobHtml = job => {
+    const name = esc(job.label || base(job.path));
+    let stateText = '', cls = '', detail = '', bar = '', actions = '';
+    if (job.status === 'queued') stateText = 'Waiting';
+    if (job.status === 'running') {
+        const progress = job.total ? ` · ${job.tokens} of ${job.total} tokens${job.bps ? ` · ${fmtBytes(job.bps)}/s` : ''}` : '';
+        stateText = `${job.stage || 'Working'} · ${fmtTime(job.elapsed || 0)}${progress}`;
+        bar = `<div class="bar"><i class="${job.percent != null ? 'det' : ''}" style="${job.percent != null ? `width:${job.percent}%` : ''}"></i></div>`;
+        actions = '<button data-act="cancel">Cancel</button>';
+    }
+    if (job.status === 'done') {
+        const result = job.result;
+        cls = 'ok';
+        if (job.mode === 'compress') {
+            stateText = `Done · ${fmtTime(result.seconds)}`;
+            const ratio = result.inputSize ? (result.inputSize / result.outputSize).toFixed(2) : '–';
+            detail = `${fmtBytes(result.inputSize)} → ${fmtBytes(result.outputSize)} (ratio ${ratio}:1)\n${esc(result.output)}`;
+        }
+        else if (job.mode === 'decompress') {
+            stateText = `Verified · ${fmtTime(result.seconds)}`;
+            detail = `${fmtBytes(result.inputSize)} → ${fmtBytes(result.outputSize)}, checksum matches\n${esc(result.output)}`;
+        }
+        else {
+            stateText = `Done · ${fmtTime(result.seconds)}`;
+            detail = `${result.tokens} tokens, nothing was saved`;
+        }
+        if (job.mode !== 'trace') actions = '<button data-act="reveal">Show in folder</button>';
+        if (job.steps?.length) actions += '<button data-act="diagram">Replay diagram</button>';
+        else if (job.text != null && job.mode === 'compress') actions += '<button data-act="trace">Show diagram for this text</button>';
+    }
+    if (['error', 'cancelled'].includes(job.status)) {
+        cls = job.status === 'error' ? 'err' : '';
+        stateText = job.status === 'error' ? 'Failed' : 'Cancelled';
+        detail = job.status === 'error' ? esc(job.error) : '';
+        if (job.canForce) actions = '<button data-act="force">Try anyway</button>';
+        actions += '<button data-act="retry">Retry</button>';
+    }
+    return `<li class="job" data-key="${esc(job.key)}">
+    <div class="jname">${name}</div><div class="jstate ${cls}">${esc(stateText)}</div>
+    ${bar}${detail ? `<div class="jdetail">${detail}</div>` : ''}
+    ${actions ? `<div class="jactions">${actions}</div>` : ''}</li>`;
+};
+
+const render = () => {
+    const jobs = [...state.jobs.values()].reverse();
+    $('jobsCard').hidden = jobs.length === 0;
+    $('jobs').innerHTML = jobs.map(jobHtml).join('');
+};
+
+$('jobs').addEventListener('click', async event => {
+    const button = event.target.closest('button[data-act]');
+    const item = event.target.closest('li.job');
+    if (!button || !item) return;
+    const job = state.jobs.get(item.dataset.key);
+    const act = button.dataset.act;
+    if (act === 'cancel') await tiny.api.call('cancel');
+    if (act === 'reveal') await tiny.app.shell.reveal(job.result.output);
+    if (act === 'diagram' && !runningJob()) showDiagram(job, { live: false });
+    if (act === 'trace')
+        // The live run was not recorded, so run the coder again on the text without saving.
+        enqueue({
+            key: Math.random().toString(36).slice(2), path: job.path, text: job.text, trace: true,
+            label: `Diagram for ${job.label}`, status: 'queued'
+        });
+    if (['retry', 'force'].includes(act)) {
+        job.force = act === 'force';
+        job.status = 'queued';
+        state.queue.push(job);
+        render();
+        pump();
+    }
 });
 
 // ---- input tabs ---------------------------------------------------------------
 
-function showTab(name, focus = false) {
-  state.tab = name;
-  for (const t of ['file', 'text']) {
-    const sel = t === name;
-    const tab = $(t === 'file' ? 'tabFile' : 'tabText');
-    tab.setAttribute('aria-selected', String(sel));
-    tab.tabIndex = sel ? 0 : -1;
-    $(t === 'file' ? 'paneFile' : 'paneText').hidden = !sel;
-    if (sel && focus) tab.focus();
-  }
-  if (name === 'text') $('textIn').focus();
-  tiny.store.set('tab', name);
-}
+const showTab = (name, focus = false) => {
+    state.tab = name;
+    for (const tab of ['file', 'text']) {
+        const selected = tab === name;
+        const button = $(tab === 'file' ? 'tabFile' : 'tabText');
+        button.setAttribute('aria-selected', String(selected));
+        button.tabIndex = selected ? 0 : -1;
+        $(tab === 'file' ? 'paneFile' : 'paneText').hidden = !selected;
+        if (selected && focus) button.focus();
+    }
+    if (name === 'text') $('textIn').focus();
+    tiny.store.set('tab', name);
+};
 $('tabFile').addEventListener('click', () => showTab('file'));
 $('tabText').addEventListener('click', () => showTab('text'));
-$('tabFile').parentElement.addEventListener('keydown', (e) => {
-  if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
-    e.preventDefault();
-    showTab(state.tab === 'file' ? 'text' : 'file', true);
-  }
+$('tabFile').parentElement.addEventListener('keydown', event => {
+    if (['ArrowRight', 'ArrowLeft'].includes(event.key)) {
+        event.preventDefault();
+        showTab(state.tab === 'file' ? 'text' : 'file', true);
+    }
 });
 
 // ---- text input -------------------------------------------------------------
 
-const byteLength = (t) => new TextEncoder().encode(t).length;
 $('textIn').addEventListener('input', () => {
-  const t = $('textIn').value;
-  $('textCount').textContent = `${[...t].length} characters, ${byteLength(t)} bytes`;
-  $('textGo').disabled = t.length === 0;
+    const text = $('textIn').value;
+    $('textCount').textContent = `${[...text].length} characters, ${byteLength(text)} bytes`;
+    $('textGo').disabled = text.length === 0;
 });
-async function compressText() {
-  const text = $('textIn').value;
-  if (!text) return;
-  const output = await tiny.dialog.saveFile({ types: ['llmz'], name: 'text' });
-  if (!output) return;
-  const job = {
-    key: Math.random().toString(36).slice(2), path: output, output, text,
-    label: `Text (${byteLength(text)} bytes)`, status: 'queued', detail: '',
-  };
-  state.jobs.set(job.key, job);
-  state.queue.push(job);
-  render();
-  pump();
-}
+const compressText = async () => {
+    const text = $('textIn').value;
+    if (!text) return;
+    const output = await tiny.dialog.saveFile({ types: ['llmz'], name: 'text' });
+    if (!output) return;
+    enqueue({
+        key: Math.random().toString(36).slice(2), path: output, output, text,
+        label: `Text (${byteLength(text)} bytes)`, status: 'queued'
+    });
+};
 $('textGo').addEventListener('click', compressText);
-$('textIn').addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); compressText(); }
+$('textIn').addEventListener('keydown', event => {
+    if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+        event.preventDefault();
+        compressText();
+    }
 });
 
 // ---- drop / choose ---------------------------------------------------------
 
-tiny.win.onDrop((paths) => { $('drop').classList.remove('over'); addFiles(paths); });
-for (const ev of ['dragenter', 'dragover']) {
-  document.addEventListener(ev, (e) => { e.preventDefault(); $('drop').classList.add('over'); });
-}
-for (const ev of ['dragleave', 'drop']) {
-  document.addEventListener(ev, (e) => { e.preventDefault(); $('drop').classList.remove('over'); });
-}
-tiny.app.onOpenFiles((paths) => addFiles(paths));
+tiny.win.onDrop(paths => {
+    $('drop').classList.remove('over');
+    addFiles(paths);
+});
+for (const name of ['dragenter', 'dragover'])
+    document.addEventListener(name, event => {
+        event.preventDefault();
+        $('drop').classList.add('over');
+    });
+for (const name of ['dragleave', 'drop'])
+    document.addEventListener(name, event => {
+        event.preventDefault();
+        $('drop').classList.remove('over');
+    });
+tiny.app.onOpenFiles(paths => addFiles(paths));
 $('pickFiles').addEventListener('click', async () => {
-  const paths = await tiny.dialog.openFiles();
-  if (paths && paths.length) addFiles(paths);
+    const paths = await tiny.dialog.openFiles();
+    if (paths && paths.length) addFiles(paths);
 });
 
 // ---- start -----------------------------------------------------------------
 
 (async () => {
-  await tiny.api.call('ping');
-  await loadSettings();
-  showTab(state.tab);
-  await refreshStatus();
-})().catch((e) => { document.body.insertAdjacentHTML('afterbegin', `<p class="err">${esc(e)}</p>`); });
+    await tiny.api.call('ping');
+    await loadSettings();
+    showTab(state.tab);
+    await refreshStatus();
+})().catch(error => document.body.insertAdjacentHTML('afterbegin', `<p class="err">${esc(error)}</p>`));
