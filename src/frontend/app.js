@@ -317,7 +317,7 @@ const pump = async () => {
 
 const runJob = async job => {
     job.model = state.modelPath ? base(state.modelPath) : null;
-    Object.assign(job, { status: 'running', elapsed: 0, percent: null, error: null, tokens: 0, total: 0, bps: null, steps: [], diagram: false, lzma: null });
+    Object.assign(job, { status: 'running', percent: null, error: null, tokens: 0, total: 0, bps: null, steps: [], diagram: false, lzma: null, startedAt: Date.now() });
     render();
     try {
         if (!state.lib) throw new Error('libllama is not installed. Use the install box above.');
@@ -352,7 +352,6 @@ const runJob = async job => {
 tiny.api.on('job', event => {
     const job = runningJob();
     if (!job) return;
-    job.elapsed = event.elapsed;
     if (event.stage) job.stage = event.stage;
     if (event.total) {
         job.tokens = event.tokens;
@@ -382,13 +381,25 @@ const lzmaLine = job => {
     return `\nLZMA level ${lzma.level}: ${fmtBytes(lzma.size)} (ratio ${ratio}:1, ${fmtTime(lzma.seconds)}), ${versus}`;
 };
 
+const runningText = job => {
+    const progress = job.total ? ` · ${job.tokens} of ${job.total} tokens${job.bps ? ` · ${fmtBytes(job.bps)}/s` : ''}` : '';
+    return `${job.stage || 'Working'} · ${fmtTime((Date.now() - job.startedAt) / 1000)}${progress}`;
+};
+
+// The backend reports progress about once a second, so the timer of the running job is updated here.
+// Only its text changes, because rebuilding the list would swallow clicks on the Cancel button.
+setInterval(() => {
+    const job = runningJob();
+    const text = job && document.querySelector(`li.job[data-key="${job.key}"] .jstate`);
+    if (text) text.textContent = runningText(job);
+}, 100);
+
 const jobHtml = job => {
     const name = esc(job.label || base(job.path));
     let stateText = '', cls = '', detail = '', bar = '', actions = '';
     if (job.status === 'queued') stateText = 'Waiting';
     if (job.status === 'running') {
-        const progress = job.total ? ` · ${job.tokens} of ${job.total} tokens${job.bps ? ` · ${fmtBytes(job.bps)}/s` : ''}` : '';
-        stateText = `${job.stage || 'Working'} · ${fmtTime(job.elapsed || 0)}${progress}`;
+        stateText = runningText(job);
         bar = `<div class="bar"><i class="${job.percent != null ? 'det' : ''}" style="${job.percent != null ? `width:${job.percent}%` : ''}"></i></div>`;
         actions = '<button data-act="cancel">Cancel</button>';
     }

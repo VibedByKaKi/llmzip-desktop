@@ -50,6 +50,7 @@ em { color: var(--muted); font-style: normal; font-size: 12.5px; margin-left: 6p
 #dlPanel { margin-top: 12px; padding-top: 4px; border-top: 1px solid var(--line); }
 #dlPanel h3 { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin: 12px 0 6px; font-weight: 600; }
 li.cat { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+.cat .actions button { min-width: 6.5em; text-align: center; }
 li.cat:last-child { border-bottom: 0; }
 .small { font-size: 12.5px; }
 .urlrow { display: flex; gap: 8px; }
