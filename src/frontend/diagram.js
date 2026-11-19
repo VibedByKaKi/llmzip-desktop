@@ -612,6 +612,8 @@ export const createDiagram = root => {
         el.svg.innerHTML = frame.svg;
         if (pointer) showTip();
         el.text.innerHTML = frame.text;
+        // The box is height-capped; keep the newest text (the current token) in view.
+        el.text.scrollTop = el.text.scrollHeight;
         el.binary.innerHTML = frame.binary;
         el.line.innerHTML = frame.line;
         el.total.textContent = frame.total;
