@@ -193,7 +193,7 @@ const binaryHtml = (steps, pos, t) => {
 };
 
 const statsText = (step, total, originalBytes) => {
-    const parts = [`token ${step.index + 1}${total ? ` of ${total}` : ''}`, visible(step.piece, step.isEos), `p = ${pct(step.probability)}`, `${fmtBits(step.bits)} bits`];
+    const parts = [`token ${step.index + 1}${total ? ` of ${total}` : ''}`, `<code>${esc(visible(step.piece, step.isEos))}</code>`, `p = ${pct(step.probability)}`, `${fmtBits(step.bits)} bits`];
     const sofar = `${fmtBits(step.cumulativeBits)} bits so far (${fmtBytes(Math.ceil(step.cumulativeBits / 8))})`;
     const original = originalBytes ? ` of ${originalBytes * 8} bits (${fmtBytes(originalBytes)}) in the original` : '';
     return { line: parts.join(' · '), total: sofar + original };
@@ -300,7 +300,7 @@ export const createDiagram = root => {
         el.svg.innerHTML = frame.svg;
         el.text.innerHTML = frame.text;
         el.binary.innerHTML = frame.binary;
-        el.line.textContent = frame.line;
+        el.line.innerHTML = frame.line;
         el.total.textContent = frame.total;
         el.ratio.style.width = `${(frame.ratio * 100).toFixed(1)}%`;
         pendingSummary = frame.summary;
@@ -350,7 +350,7 @@ export const createDiagram = root => {
             drawn = '';
             announcedText = '';
             el.live.textContent = '';
-            el.svg.innerHTML = el.text.innerHTML = el.binary.innerHTML = el.line.textContent = el.total.textContent = '';
+            el.svg.innerHTML = el.text.innerHTML = el.binary.innerHTML = el.line.innerHTML = el.total.textContent = '';
             el.ratio.style.width = '0';
             player.playing = true;
             kick();

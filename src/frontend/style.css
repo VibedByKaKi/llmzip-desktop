@@ -110,6 +110,7 @@ select:focus-visible, input:focus-visible, textarea:focus-visible, button:focus-
 .dg-range { fill: var(--ok); }
 .dg-stats { display: flex; flex-direction: column; gap: 2px; font-size: 12.5px; }
 .dg-line { font-weight: 600; }
+.dg-line code { padding: 1px 5px; border-radius: 4px; background: var(--line); font-weight: 400; }
 .dg-total { color: var(--muted); }
 .dg-ratio { height: 4px; background: var(--line); border-radius: 2px; overflow: hidden; }
 .dg-ratio i { display: block; height: 100%; width: 0; min-width: 2px; background: var(--ok); }
