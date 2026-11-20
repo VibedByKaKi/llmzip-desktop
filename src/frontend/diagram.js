@@ -36,7 +36,9 @@ const
     // the bar's width. In the video the dotted lines sit at about 18% and 82%.
     MARGIN = 0.28,
     MARGIN_BITS = 20n,
-    OTHERS = 'other tokens (not individually listed)';
+    OTHERS = 'other tokens (not individually listed)',
+    // Bars narrower than this many pixels are merged into one path.
+    THIN = 1.2;
 
 const
     clamp = (x, lo = 0, hi = 1) => Math.min(hi, Math.max(lo, x)),
@@ -299,9 +301,17 @@ const layerSvg = (step, x0, sx, y, alpha, dim, tips) => {
     if (to <= from) return '';
     const y0 = y.toFixed(1);
     let out = `<g opacity="${alpha.toFixed(3)}"><g class="dg-others" data-other="${OTHERS}"><rect class="dg-track" x="${from.toFixed(2)}" y="${y0}" width="${(to - from).toFixed(2)}" height="${ROW_HEIGHT}" rx="2"/></g>`;
+    // Bars thinner than THIN pixels are drawn together as one path. A zoomed-out
+    // layer lists up to 300 of them, and one element each made every frame slow.
+    // They carry no label or tooltip, since the pointer cannot hit them anyway.
+    const thin = [];
     step.candidates.forEach((candidate, i) => {
         const [a, b] = [x0 + candidate.lo * sx, x0 + candidate.hi * sx];
         if (b < X0 || a > X0 + BAR_WIDTH) return;
+        if (!candidate.chosen && b - a < THIN) {
+            thin.push([Math.max(a, X0), Math.min(b, X0 + BAR_WIDTH)]);
+            return;
+        }
         const
             [xa, xb] = visibleSpan(a, b),
             w = Math.max(candidate.chosen ? 1.5 : 0.8, xb - xa),
@@ -312,6 +322,22 @@ const layerSvg = (step, x0, sx, y, alpha, dim, tips) => {
         else
             out += barLabel(candidate, xa, xb - xa, y, step.isEos);
     });
+    if (thin.length) {
+        thin.sort((p, q) => p[0] - q[0]);
+        let path = '', [start, end] = thin[0];
+        const flush = () => {
+            path += `M${start.toFixed(2)} ${y0}h${Math.max(0.8, end - start).toFixed(2)}v${ROW_HEIGHT}h-${Math.max(0.8, end - start).toFixed(2)}z`;
+        };
+        for (const [a, b] of thin.slice(1)) {
+            if (a - end < 0.4) end = Math.max(end, b);
+            else {
+                flush();
+                [start, end] = [a, b];
+            }
+        }
+        flush();
+        out += `<path class="dg-bar dg-thin" opacity="${(1 - 0.5 * dim).toFixed(3)}" d="${path}"/>`;
+    }
     return `${out}</g>`;
 };
 

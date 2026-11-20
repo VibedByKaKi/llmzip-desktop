@@ -108,6 +108,7 @@ select:focus-visible, input:focus-visible, textarea:focus-visible, button:focus-
 .dg-svg { width: 100%; height: auto; display: block; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; font-family: ui-monospace, Menlo, Consolas, monospace; }
 .dg-track { fill: var(--line); }
 .dg-bar { fill: color-mix(in srgb, var(--accent) 38%, var(--card)); stroke: var(--card); stroke-width: 1; }
+.dg-bar.dg-thin { stroke: none; }
 .dg-bar.dg-alt { fill: color-mix(in srgb, var(--accent) 58%, var(--card)); }
 .dg-bar.dg-chosen { fill: var(--accent); stroke: var(--text); stroke-width: 1.5; }
 .dg-pin { fill: var(--accent); }
