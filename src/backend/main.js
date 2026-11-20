@@ -487,6 +487,8 @@ const
     // The diagram gets every step of a text job up to this many, and the first
     // FILE_STEPS of a file job. Bigger inputs run the same, only the page stops
     // recording.
+    // Candidates per step. The video draws the 300 most probable tokens.
+    TOP_K = 300,
     TEXT_STEPS = 1000,
     FILE_STEPS = 200,
     TEXT_LIMIT = 8 * 1024,
@@ -706,7 +708,7 @@ const dryRunInstall = () => {
 // ---- the worker --------------------------------------------------------------
 
 const stepOptions = (diagram, isText) => ({
-    topK: diagram ? 16 : 0,
+    topK: diagram ? TOP_K : 0,
     maxSteps: !diagram ? 0 : isText ? TEXT_STEPS : FILE_STEPS
 });
 

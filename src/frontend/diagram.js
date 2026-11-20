@@ -32,8 +32,7 @@ const
     MAX_KEPT_STEPS = 2000,
     TEXT_CHARS = 300,
     BIN_CHARS = 64,
-    MAX_SLIVERS = 240,
-    // Space left on each side of the chosen bar after the zoom, as a fraction of
+        // Space left on each side of the chosen bar after the zoom, as a fraction of
     // the bar's width. In the video the dotted lines sit at about 18% and 82%.
     MARGIN = 0.28,
     MARGIN_BITS = 20n,
@@ -193,6 +192,32 @@ export const coderInterval = (steps, index) => {
     return { lo: base + 2n * low, hi: base + 2n * (high + 1n), shift: bits + pending + 65 };
 };
 
+// The shortest binary fraction k / 2^n inside the coder's interval after step `index`,
+// as the video's get_code finds it: the least n with ceil(lo * 2^n) / 2^n < hi.
+// n only grows from step to step, so the search starts at the previous n.
+// This is the ideal code. The bits the encoder has finalised lag behind it.
+const codes = new WeakMap();
+export const idealCode = (steps, index) => {
+    let memo = codes.get(steps);
+    if (!memo) codes.set(steps, memo = { n: 0, list: [] });
+    for (let i = memo.list.length; i <= index; i++) {
+        const
+            interval = coderInterval(steps, i),
+            total = interval.shift + 8,
+            lo = interval.lo << 8n,
+            hi = interval.hi << 8n;
+        let n = memo.n, k;
+        for (;; n++) {
+            const rest = BigInt(total - n);
+            k = (lo + (1n << rest) - 1n) >> rest;
+            if ((k << rest) < hi) break;
+        }
+        memo.n = n;
+        memo.list.push({ n, k });
+    }
+    return memo.list[index];
+};
+
 // The part [from, to] (fractions) of an interval, for the camera between two layers.
 export const zoomInterval = (base, from, to) => {
     const
@@ -254,46 +279,6 @@ export const axisTicks = view => {
 
 const chosenOf = step => step.candidates.find(candidate => candidate.chosen);
 
-// Integer hash to a number in [0, 1), so the slivers are the same on every frame.
-const unitHash = (a, b, c) => {
-    let h = Math.imul(a ^ 0x9e3779b9, 0x85ebca6b) ^ Math.imul(b + 0x7f4a7c15, 0xc2b2ae35) ^ Math.imul(c + 1, 0x27d4eb2f);
-    h = Math.imul(h ^ (h >>> 15), 0x2c1b3c6d);
-    return ((h ^ (h >>> 12)) >>> 0) / 4294967296;
-};
-
-const slivers = new WeakMap();
-
-// Thin bars for the tokens that are not listed, as pairs [from, to] of fractions.
-// The model gives only their total probability, so their places are a drawing:
-// each gap between two listed bars gets bars at places taken from the token ids
-// that border the gap.
-const sliversOf = step => {
-    let found = slivers.get(step);
-    if (found) return found;
-    found = [];
-    const sorted = [...step.candidates].sort((a, b) => a.lo - b.lo);
-    let edge = 0, leftId = 0;
-    const fill = (to, rightId) => {
-        const
-            gap = to - edge,
-            count = gap < 1e-5 ? 0 : clamp(Math.round(gap * 150), 1, 60);
-        for (let i = 0; i < count && found.length < MAX_SLIVERS * 2; i++) {
-            const
-                cell = gap / count,
-                from = edge + (i + 0.1 + 0.5 * unitHash(leftId, rightId, i)) * cell;
-            found.push(from, from + cell * (0.12 + 0.3 * unitHash(rightId, leftId, i + 99)));
-        }
-    };
-    for (const candidate of sorted) {
-        fill(candidate.lo, candidate.tokenId);
-        edge = Math.max(edge, candidate.hi);
-        leftId = candidate.tokenId;
-    }
-    fill(1, 0);
-    slivers.set(step, found);
-    return found;
-};
-
 const barLabel = (candidate, x, w, y, isEos) => {
     const
         text = visible(candidate.piece, isEos && candidate.chosen),
@@ -306,20 +291,14 @@ const barLabel = (candidate, x, w, y, isEos) => {
 const visibleSpan = (a, b) => [Math.max(a, X0), Math.min(b, X0 + BAR_WIDTH)];
 
 // One layer at its own scale: fraction u of the layer is at x0 + u * sx on screen.
-// Bars and slivers outside the view are skipped. `dim` fades the bars that were
+// Bars outside the view are skipped. The gaps between the listed bars are the
+// tokens that were not listed, drawn as one flat track. `dim` fades the bars that were
 // not chosen, and `tips` adds a tooltip to each bar.
 const layerSvg = (step, x0, sx, y, alpha, dim, tips) => {
     const [from, to] = visibleSpan(x0, x0 + sx);
     if (to <= from) return '';
     const y0 = y.toFixed(1);
-    let path = '';
-    const marks = sliversOf(step);
-    for (let i = 0; i < marks.length; i += 2) {
-        const [a, b] = visibleSpan(x0 + marks[i] * sx, x0 + marks[i + 1] * sx);
-        if (b > a) path += `M${a.toFixed(2)} ${y0}h${Math.max(0.5, b - a).toFixed(2)}v${ROW_HEIGHT}h-${Math.max(0.5, b - a).toFixed(2)}z`;
-    }
-    let out = `<g opacity="${alpha.toFixed(3)}"><g class="dg-others" data-other="${OTHERS}"><rect class="dg-track" x="${from.toFixed(2)}" y="${y0}" width="${(to - from).toFixed(2)}" height="${ROW_HEIGHT}" rx="2"/>` +
-        (path ? `<path class="dg-sliver" d="${path}"/>` : '') + '</g>';
+    let out = `<g opacity="${alpha.toFixed(3)}"><g class="dg-others" data-other="${OTHERS}"><rect class="dg-track" x="${from.toFixed(2)}" y="${y0}" width="${(to - from).toFixed(2)}" height="${ROW_HEIGHT}" rx="2"/></g>`;
     step.candidates.forEach((candidate, i) => {
         const [a, b] = [x0 + candidate.lo * sx, x0 + candidate.hi * sx];
         if (b < X0 || a > X0 + BAR_WIDTH) return;
@@ -388,7 +367,7 @@ const labelOf = (tick, shared) => {
 
 // Number line of the exact interval in view. Its ends are the camera's ends, so
 // the ticks move and gain digits with the zoom.
-const axisSvg = (view, x1, x2, step, e) => {
+const axisSvg = (view, x1, x2, step, e, cell) => {
     const
         { ticks, zero, one } = axisTicks(view),
         shared = ticks.length > 1 ? [...ticks[0].fraction].findIndex((c, i) => ticks.some(tick => tick.fraction[i] !== c)) : 0,
@@ -405,6 +384,12 @@ const axisSvg = (view, x1, x2, step, e) => {
     const [a, b] = visibleSpan(x1, x2);
     if (b > a)
         out += `<rect class="dg-range" opacity="${e.toFixed(3)}" x="${a.toFixed(1)}" y="${AXIS_Y - 3}" width="${Math.max(2, b - a).toFixed(1)}" height="6" rx="2"/>`;
+    // The cell of the shortest code, yellow, red while the code gets longer.
+    if (cell) {
+        const [ca, cb] = visibleSpan(X0 + cell.from * BAR_WIDTH, X0 + cell.to * BAR_WIDTH);
+        if (cb > ca)
+            out += `<line class="dg-cell${cell.red ? ' dg-red' : ''}" x1="${ca.toFixed(1)}" y1="${AXIS_Y}" x2="${Math.max(cb, ca + 1).toFixed(1)}" y2="${AXIS_Y}"/>`;
+    }
     for (const tick of ticks) {
         const x = (X0 + tick.at * BAR_WIDTH).toFixed(1);
         out += `<line class="dg-axis" x1="${x}" y1="${AXIS_Y - 5}" x2="${x}" y2="${AXIS_Y}"/>`;
@@ -417,11 +402,23 @@ const axisSvg = (view, x1, x2, step, e) => {
     return out;
 };
 
+// Where the cell [k / 2^n, (k + 1) / 2^n) of the shortest code falls in the view.
+const cellOf = (steps, index, view, red) => {
+    const
+        { n, k } = idealCode(steps, index),
+        scale = Math.max(view.shift, n),
+        width = (view.hi - view.lo) << BigInt(scale - view.shift),
+        base = view.lo << BigInt(scale - view.shift),
+        lo = k << BigInt(scale - n),
+        at = value => Number(((value - base) << 40n) / width) / 2 ** 40;
+    if (width <= 0n || n === 0) return null;
+    return { from: at(lo), to: at(lo + (1n << BigInt(scale - n))), red };
+};
+
 const legendSvg = () => {
     const y = HEIGHT - 14;
     return `<rect class="dg-bar dg-chosen" x="${X0}" y="${y}" width="16" height="9"/><text class="dg-caption" x="${X0 + 22}" y="${y + 8}">chosen token</text>` +
         `<g class="dg-others" data-other="${OTHERS}"><rect class="dg-track" x="${X0 + 120}" y="${y}" width="16" height="9"/>` +
-        `<path class="dg-sliver" d="M${X0 + 122} ${y}h1v9h-1zM${X0 + 126} ${y}h1.5v9h-1.5zM${X0 + 131} ${y}h1v9h-1z"/>` +
         `<text class="dg-caption" x="${X0 + 142}" y="${y + 8}">${OTHERS}</text></g>`;
 };
 
@@ -452,11 +449,11 @@ const binaryHtml = (steps, pos, t) => {
     return `0.${emitted > shown.length ? '…' : ''}${old}<mark class="${added ? 'on' : ''}">${added}</mark>${underflow}`;
 };
 
-const statsText = (step, total, originalBytes) => {
+const statsText = (step, total, originalBytes, codeBits) => {
     const parts = [`token ${step.index + 1}${total ? ` of ${total}` : ''}`, `<code>${esc(visible(step.piece, step.isEos))}</code>`, `p = ${pct(step.probability)}`, `${fmtBits(step.bits)} bits`];
     const sofar = `${fmtBits(step.cumulativeBits)} bits so far (${fmtBytes(Math.ceil(step.cumulativeBits / 8))})`;
     const original = originalBytes ? ` of ${originalBytes * 8} bits (${fmtBytes(originalBytes)}) in the original` : '';
-    return { line: parts.join(' · '), total: sofar + original };
+    return { line: parts.join(' · '), total: `${sofar}${original}. Shortest code so far: ${codeBits} bits` };
 };
 
 // Everything the page shows for step `pos` at progress `t` (0 to 1). Pure.
@@ -483,7 +480,11 @@ export const renderFrame = (steps, pos, t, { total = 0, originalBytes = 0, reduc
         c = chosenOf(step),
         [a, b] = [x0 + c.lo * k, x0 + c.hi * k],
         exact = z >= 1 ? marginInterval(coderInterval(steps, pos)) : zoomInterval(coderInterval(steps, pos - 1), view.from, view.to);
-    let svg = axisSvg(exact, a, b, step, e);
+    const
+        settled = frameT >= 0.55,
+        cellAt = settled ? pos : pos - 1,
+        grew = settled && frameT < 0.8 && (pos === 0 ? idealCode(steps, 0).n > 0 : idealCode(steps, pos).n > idealCode(steps, pos - 1).n);
+    let svg = axisSvg(exact, a, b, step, e, cellAt >= 0 ? cellOf(steps, cellAt, exact, grew) : null);
     let stack = '';
     for (let i = frames.length - 1; i >= 0; i--) {
         const
@@ -502,7 +503,7 @@ export const renderFrame = (steps, pos, t, { total = 0, originalBytes = 0, reduc
             svg += `<line class="dg-guide" opacity="${e.toFixed(3)}" x1="${x.toFixed(1)}" y1="${AXIS_Y}" x2="${x.toFixed(1)}" y2="${bottom}"/>`;
     svg += legendSvg();
     const
-        stats = statsText(step, total, originalBytes),
+        stats = statsText(step, total, originalBytes, idealCode(steps, pos).n),
         original = originalBytes ? originalBytes * 8 : 0;
     return {
         svg,
