@@ -104,10 +104,20 @@ const wingetCandidates = async () => {
 const libraryHidden = () => !['', '0', 'false'].includes(String(tjs.env.LLMZIP_HIDE_LIBLLAMA ?? '').trim().toLowerCase());
 
 // The CPU of this process, which decides what dlopen accepts (an x86_64 app under Rosetta needs
-// x86_64 libraries). tiny.system.architecture() cannot be used: on macOS it falls back to
-// 'arm64' because txiki's navigator.platform names no CPU there. A Windows x64 build emulated
-// on ARM sees PROCESSOR_ARCHITECTURE=AMD64, which is the right answer for loading its DLLs.
+// x86_64 libraries). tinyjs 0.75 and later report it as tiny.system.info().processArch, and
+// useRuntimeArch() reads it from the app object. tiny.system.architecture() is the machine's chip
+// and is wrong for this, and before 0.75 it was wrong on Intel Macs (tinyjs issue 120).
+// Older runtimes get the fallback below: `uname -m`, or PROCESSOR_ARCHITECTURE on Windows, where
+// an x64 build emulated on ARM sees AMD64, the right answer for loading its DLLs.
 let archCache = null;
+export const useRuntimeArch = async app => {
+    if (archCache) return;
+    try {
+        const { processArch: reported } = await app.system.info();
+        if (reported === 'arm64' || reported === 'x86_64') archCache = reported;
+    }
+    catch { /* no system.info() or no processArch, use the fallback */ }
+};
 export const processArch = async () => {
     if (archCache) return archCache;
     let raw = '';

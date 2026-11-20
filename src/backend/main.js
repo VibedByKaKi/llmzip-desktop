@@ -16,7 +16,7 @@ import {
     decodeHeader, encodeHeader, FORMAT_VERSION, hashMatches, readPreamble, writePreamble
 } from './header.js';
 import {
-    describeBuild, findLibllama, findTool, GUIDE, installCommand, installTool, IS_WIN, joinPath, LLAMA_PACKAGE, libraryBuild, platformKey, prebuiltDir, sameBuild, toolEnv
+    describeBuild, findLibllama, findTool, GUIDE, installCommand, installTool, IS_WIN, joinPath, LLAMA_PACKAGE, libraryBuild, platformKey, prebuiltDir, sameBuild, useRuntimeArch, toolEnv
 } from './libllama.js';
 import LZMA from './vendor/lzma-js/lzma-c.js';
 
@@ -31,7 +31,7 @@ void tjs.remove(TEMP_DIR).catch(() => {});
 
 export const api = {
     status: async ({ lib, model }, app) => {
-        const found = await findLibllama(lib, (await app.paths()).data);
+        const found = await findLibllama(lib, await dataDir(app));
         return {
             platform: IS_WIN ? 'windows' : 'unix',
             lib: found,
@@ -218,8 +218,8 @@ export const api = {
         });
     },
 
-    installers: async () => ({
-        prebuilt: await prebuiltSpec().then(spec => spec ? { tag: PREBUILT_TAG, size: spec.size } : null),
+    installers: async (_params, app) => ({
+        prebuilt: await prebuiltSpec(app).then(spec => spec ? { tag: PREBUILT_TAG, size: spec.size } : null),
         tool: installTool(),
         exe: await findTool(installTool()),
         windows: IS_WIN,
@@ -275,7 +275,7 @@ export const api = {
             finally {
                 job.proc = null;
             }
-            const lib = await findLibllama(null, (await app.paths()).data);
+            const lib = await findLibllama(null, await dataDir(app));
             if (!lib) throw new Error(`${tool} finished, but libllama was not found. Restart the app, or use "Use an existing libllama".`);
             return { lib: lib.path };
         });
@@ -285,10 +285,10 @@ export const api = {
     // that LLM Zip was tested with, checks its SHA-256 and unpacks it into the app's data
     // folder. Output streams to the page as 'install' events, like installLibllama.
     installPrebuilt: async (_params, app) => {
-        const spec = await prebuiltSpec();
+        const spec = await prebuiltSpec(app);
         if (!spec) throw new Error(`There is no prebuilt libllama for this system (${await platformKey()}).`);
         const dry = dryRunInstall();
-        const data = (await app.paths()).data;
+        const data = await dataDir(app);
         const dir = await prebuiltDir(data);
         return startJob(app, 'install', async job => {
             job.stage = 'installing';
@@ -592,10 +592,19 @@ const writeContainer = async (part, out, meta, payload) => {
     }
 };
 
-const prebuiltSpec = async () => PREBUILT[await platformKey()] ?? null;
+// The app's data folder. Asking for it also settles the CPU that the library lookup needs.
+const dataDir = async app => {
+    await useRuntimeArch(app);
+    return (await app.paths()).data;
+};
+
+const prebuiltSpec = async app => {
+    await useRuntimeArch(app);
+    return PREBUILT[await platformKey()] ?? null;
+};
 
 const requireLibllama = async (chosen, app) => {
-    const found = await findLibllama(chosen, (await app.paths()).data);
+    const found = await findLibllama(chosen, await dataDir(app));
     if (!found) throw new Error('libllama was not found. See the setup instructions in the app.');
     return found;
 };
